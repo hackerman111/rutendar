@@ -9,7 +9,7 @@ use super::{
         date_from_row, date_string, encode_weekdays, event_from_row, invalid_column, invalid_input,
         now_string, occurrence_order, recurrence_from_row, sql_placeholders, time_string,
     },
-    tags::set_event_tags_tx,
+    tags::{cleanup_unused_tags_tx, set_event_tags_tx},
 };
 use crate::{
     calendar::week_start,
@@ -322,6 +322,7 @@ impl Database {
         if changed == 0 {
             return Err(invalid_input("event does not exist"));
         }
+        cleanup_unused_tags_tx(&transaction)?;
         transaction.commit()?;
         Ok(())
     }
@@ -331,6 +332,7 @@ impl Database {
         if delete_recurrence(&transaction, recurrence_id)? == 0 {
             return Err(invalid_input("recurrence does not exist"));
         }
+        cleanup_unused_tags_tx(&transaction)?;
         transaction.commit()?;
         Ok(())
     }
@@ -375,6 +377,7 @@ impl Database {
         if let Some(event_id) = old_replacement {
             transaction.execute("DELETE FROM events WHERE id = ?1", [event_id])?;
         }
+        cleanup_unused_tags_tx(&transaction)?;
         transaction.commit()?;
         Ok(())
     }
@@ -409,6 +412,7 @@ impl Database {
         if let Some(old_id) = old_replacement {
             transaction.execute("DELETE FROM events WHERE id = ?1", [old_id])?;
         }
+        cleanup_unused_tags_tx(&transaction)?;
         transaction.commit()?;
         Ok(replacement_id)
     }

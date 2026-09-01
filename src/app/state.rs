@@ -30,6 +30,24 @@ impl View {
             Self::Year => "YEAR",
         }
     }
+
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Week => Self::Day,
+            Self::Day => Self::Month,
+            Self::Month => Self::Year,
+            Self::Year => Self::Week,
+        }
+    }
+
+    pub const fn previous(self) -> Self {
+        match self {
+            Self::Week => Self::Year,
+            Self::Day => Self::Week,
+            Self::Month => Self::Day,
+            Self::Year => Self::Month,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,22 +183,19 @@ impl EventForm {
         form
     }
 
-    pub fn fields(&self) -> [(&'static str, String); Self::FIELD_COUNT] {
+    pub fn fields(&self) -> [(&'static str, &str); Self::FIELD_COUNT] {
         [
-            ("TITLE", self.title.clone()),
-            ("DATE", self.date.clone()),
-            ("TIME", self.start_time.clone()),
-            ("END TIME", self.end_time.clone()),
-            ("IMPORTANCE", self.importance.to_string()),
-            ("TAGS", self.tags.clone()),
-            (
-                "REPEAT",
-                if self.weekly { "Weekly" } else { "Never" }.into(),
-            ),
-            ("INTERVAL", self.interval.clone()),
-            ("WEEKDAYS", self.weekdays.clone()),
-            ("ENDS", self.ends.clone()),
-            ("DESCRIPTION", self.description.clone()),
+            ("TITLE", &self.title),
+            ("DATE", &self.date),
+            ("TIME", &self.start_time),
+            ("END TIME", &self.end_time),
+            ("IMPORTANCE", self.importance.as_str()),
+            ("TAGS", &self.tags),
+            ("REPEAT", if self.weekly { "Weekly" } else { "Never" }),
+            ("INTERVAL", &self.interval),
+            ("WEEKDAYS", &self.weekdays),
+            ("ENDS", &self.ends),
+            ("DESCRIPTION", &self.description),
         ]
     }
 
@@ -319,6 +334,7 @@ pub enum DeleteTarget {
     Occurrence(RecurrenceId, NaiveDate),
     Note(NoteId),
     Link(LinkId),
+    Tag(i64),
 }
 
 #[derive(Debug, Clone)]

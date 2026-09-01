@@ -12,6 +12,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
@@ -22,7 +23,7 @@ use self::{
     popup::render_popup,
     upcoming::render_upcoming,
     week::render_week,
-    widgets::{month_name, relative_event, weekday_long},
+    widgets::{month_name, weekday_long},
     year::render_year,
 };
 use crate::{
@@ -95,64 +96,204 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         ),
         View::Year => app.state.selected_date.year().to_string(),
     };
+
+    let mut spans = vec![
+        Span::styled(
+            " RUTENDAR ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+    ];
+
+    // View tabs
+    for view in [View::Week, View::Day, View::Month, View::Year] {
+        if app.state.active_view == view {
+            spans.push(Span::styled(
+                format!("[{}]", view.label()),
+                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(
+                format!(" {} ", view.label()),
+                Style::new().fg(Color::DarkGray),
+            ));
+        }
+    }
+
+    spans.push(Span::styled(" │ ", Style::new().fg(Color::DarkGray)));
+    spans.push(Span::styled(
+        title,
+        Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+    ));
+
+    // Right-aligned today indicator if width permits
+    let today_str = format!(" TODAY: {} ", app.state.today.format("%d.%m"));
+    let current_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    if (area.width as usize).saturating_sub(4) > current_len + today_str.len() {
+        let padding = (area.width as usize).saturating_sub(4) - current_len - today_str.len();
+        spans.push(Span::raw(" ".repeat(padding)));
+        spans.push(Span::styled(today_str, Style::new().fg(Color::DarkGray)));
+    }
+
     frame.render_widget(
-        Paragraph::new(title)
-            .alignment(Alignment::Center)
-            .style(Style::new().add_modifier(Modifier::BOLD))
-            .block(Block::default().borders(Borders::ALL)),
+        Paragraph::new(Line::from(spans))
+            .alignment(Alignment::Left)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::new().fg(Color::DarkGray)),
+            ),
         area,
     );
 }
 
 fn render_next(frame: &mut Frame, area: Rect, app: &App) {
-    let mut text = String::from("NEXT  ");
+    let mut spans = vec![
+        Span::styled(
+            " NEXT ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+    ];
+
     let mut shown = 0;
+    let mut current_len = 7; // " NEXT " + " "
+
     for event in &app.state.next {
         if shown >= app.config.agenda.next_events {
             break;
         }
-        let part = relative_event(app, event);
-        let separator = if shown == 0 { "" } else { " · " };
-        let reserve = 8;
-        if text.chars().count() + separator.chars().count() + part.chars().count() + reserve
-            > area.width as usize
-        {
+        let event_spans = widgets::styled_relative_event_spans(app, event);
+        let event_char_len: usize = event_spans.iter().map(|s| s.content.chars().count()).sum();
+        let sep_len = if shown == 0 { 0 } else { 3 }; // " · "
+        let reserve = 10;
+
+        if current_len + sep_len + event_char_len + reserve > area.width as usize {
             break;
         }
-        text.push_str(separator);
-        text.push_str(&part);
+
+        if shown > 0 {
+            spans.push(Span::styled(" · ", Style::new().fg(Color::DarkGray)));
+            current_len += 3;
+        }
+        spans.extend(event_spans);
+        current_len += event_char_len;
         shown += 1;
     }
+
     let remaining = app.state.next_total.saturating_sub(shown);
     if remaining > 0 {
-        text.push_str(&format!(" · +{remaining}"));
+        spans.push(Span::styled(
+            format!(" [+{remaining}]"),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
     }
-    frame.render_widget(
-        Paragraph::new(text).style(Style::new().fg(Color::Cyan)),
-        area,
-    );
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_status(frame: &mut Frame, area: Rect, app: &App) {
-    let mode = match app.state.input_mode {
-        InputMode::Normal => "NORMAL",
-        InputMode::Editor => "EDIT",
-        InputMode::Search => "SEARCH",
-        InputMode::Confirm => "CONFIRM",
-        InputMode::Scope => "SCOPE",
-        InputMode::GotoDate => "DATE",
+    let (mode_text, mode_style) = match app.state.input_mode {
+        InputMode::Normal => (
+            " NORMAL ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::Editor => (
+            " EDIT ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::Search => (
+            " SEARCH ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::Confirm => (
+            " CONFIRM ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::Scope => (
+            " SCOPE ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::GotoDate => (
+            " DATE ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
     };
-    let mut text = format!(
-        " {mode} │ {} │ {} │ a events │ t upcoming │ ? help ",
-        app.state.active_view.label(),
-        app.state.selected_date.format("%d.%m.%Y")
-    );
+
+    let mut spans = vec![
+        Span::styled(mode_text, mode_style),
+        Span::styled(
+            format!(
+                " {} › {} ",
+                app.state.active_view.label(),
+                app.state.selected_date.format("%d.%m.%Y")
+            ),
+            Style::new().fg(Color::White),
+        ),
+    ];
+
     if let Some(status) = &app.state.status_message {
-        text.push_str("│ ");
-        text.push_str(status);
+        spans.push(Span::styled("│ ", Style::new().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            status.clone(),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
     }
-    frame.render_widget(
-        Paragraph::new(text).style(Style::new().bg(Color::DarkGray)),
-        area,
-    );
+
+    let hints = [
+        ("a", "ADD"),
+        ("n", "NEXT DAY"),
+        ("Tab", "PANES"),
+        ("/", "AGENDA"),
+        ("?", "HELP"),
+        ("q", "QUIT"),
+    ];
+
+    let mut hints_spans = Vec::new();
+    for (key, label) in hints {
+        hints_spans.push(Span::styled(
+            format!("[{key}]"),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+        hints_spans.push(Span::styled(
+            format!(" {label} "),
+            Style::new().fg(Color::DarkGray),
+        ));
+    }
+
+    let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let hints_len: usize = hints_spans.iter().map(|s| s.content.chars().count()).sum();
+
+    if area.width as usize > left_len + hints_len + 1 {
+        let padding = (area.width as usize) - left_len - hints_len;
+        spans.push(Span::raw(" ".repeat(padding)));
+        spans.extend(hints_spans);
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }

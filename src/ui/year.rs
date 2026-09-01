@@ -2,12 +2,12 @@ use chrono::Datelike;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::Style,
-    text::Span,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::widgets::{FOCUSED, TODAY, month_name};
+use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, UNFOCUSED, month_name};
 use crate::app::App;
 
 pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
@@ -35,22 +35,69 @@ pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
                 .filter(|note| note.date.month() == month)
                 .count();
             let selected = app.state.selected_date.month() == month;
-            let title_style = if app.state.today.year() == app.state.selected_date.year()
-                && app.state.today.month() == month
-            {
+            let is_today_month = app.state.today.year() == app.state.selected_date.year()
+                && app.state.today.month() == month;
+
+            let title_line = if selected {
+                Line::from(vec![Span::styled(
+                    format!(" ▌{:02} · {}▐ ", month, month_name(month)),
+                    SELECTED,
+                )])
+            } else if is_today_month {
+                Line::from(vec![
+                    Span::styled(
+                        format!(" [{:02} · {}] ", month, month_name(month)),
+                        TODAY_BADGE,
+                    ),
+                    Span::styled(" TODAY ", TODAY),
+                ])
+            } else {
+                Line::from(vec![Span::styled(
+                    format!(" [{:02} · {}] ", month, month_name(month)),
+                    Style::new().fg(Color::DarkGray),
+                )])
+            };
+
+            let lines = vec![
+                Line::from(vec![
+                    Span::styled("  СОБЫТИЯ  ", Style::new().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{events:>3} "),
+                        if events > 0 {
+                            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::new().fg(Color::DarkGray)
+                        },
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("  ЗАМЕТКИ  ", Style::new().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{notes:>3} "),
+                        if notes > 0 {
+                            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::new().fg(Color::DarkGray)
+                        },
+                    ),
+                ]),
+            ];
+
+            let border_style = if selected {
+                FOCUSED
+            } else if is_today_month {
                 TODAY
             } else {
-                Style::default()
+                UNFOCUSED
             };
+
             frame.render_widget(
-                Paragraph::new(format!("Событий: {events}\nЗаметок: {notes}"))
-                    .alignment(Alignment::Center)
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .title(Span::styled(month_name(month), title_style))
-                            .border_style(if selected { FOCUSED } else { Style::default() }),
-                    ),
+                Paragraph::new(lines).alignment(Alignment::Left).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(title_line)
+                        .border_style(border_style),
+                ),
                 columns[column],
             );
         }

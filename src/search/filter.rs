@@ -26,52 +26,69 @@ pub fn date_range(filter: DateFilter, today: NaiveDate) -> Option<(NaiveDate, Na
     }
 }
 
+fn contains_ignore_case(haystack: &str, needle_lowercase: &str) -> bool {
+    if needle_lowercase.is_empty() {
+        return true;
+    }
+    haystack.to_lowercase().contains(needle_lowercase)
+}
+
 pub fn event_matches(
     event: &EventOccurrence,
     query: &SearchQuery,
     filters: &SearchFilters,
 ) -> bool {
     if matches!(filters.item_type, ItemType::Notes)
-        || matches!(filters.item_type, ItemType::Recurring) && !event.is_recurring
+        || (matches!(filters.item_type, ItemType::Recurring) && !event.is_recurring)
         || filters
             .importance
             .is_some_and(|value| event.importance != value)
     {
         return false;
     }
-    let mut haystack = format!(
-        "{} {}",
-        event.title.to_lowercase(),
-        event.description.as_deref().unwrap_or("").to_lowercase()
-    );
-    for tag in &event.tags {
-        haystack.push(' ');
-        haystack.push_str(&tag.normalized_name);
+    if !query.text.is_empty() {
+        let in_title = contains_ignore_case(&event.title, &query.text);
+        let in_desc = event
+            .description
+            .as_deref()
+            .is_some_and(|desc| contains_ignore_case(desc, &query.text));
+        let in_tags = event
+            .tags
+            .iter()
+            .any(|tag| tag.normalized_name.contains(&query.text));
+        if !in_title && !in_desc && !in_tags {
+            return false;
+        }
     }
-    if !query.text.is_empty() && !haystack.contains(&query.text) {
-        return false;
-    }
-    let event_tags: Vec<_> = event
-        .tags
-        .iter()
-        .map(|tag| tag.normalized_name.as_str())
-        .collect();
     if !query
         .tags
         .iter()
-        .all(|tag| event_tags.contains(&tag.as_str()))
+        .all(|q_tag| event.tags.iter().any(|tag| tag.normalized_name == *q_tag))
     {
         return false;
     }
-    let mut wanted: Vec<_> = filters.tags.iter().map(|tag| normalize_tag(tag)).collect();
-    wanted.sort();
-    wanted.dedup();
-    match filters.tag_matching {
-        TagMatching::All => wanted.iter().all(|tag| event_tags.contains(&tag.as_str())),
-        TagMatching::Any => {
-            wanted.is_empty() || wanted.iter().any(|tag| event_tags.contains(&tag.as_str()))
+    if !filters.tags.is_empty() {
+        let matches_filter_tag = |filter_tag: &str| {
+            let normalized = normalize_tag(filter_tag);
+            event
+                .tags
+                .iter()
+                .any(|tag| tag.normalized_name == normalized)
+        };
+        match filters.tag_matching {
+            TagMatching::All => {
+                if !filters.tags.iter().all(|tag| matches_filter_tag(tag)) {
+                    return false;
+                }
+            }
+            TagMatching::Any => {
+                if !filters.tags.iter().any(|tag| matches_filter_tag(tag)) {
+                    return false;
+                }
+            }
         }
     }
+    true
 }
 
 pub fn note_matches(note: &Note, query: &SearchQuery, filters: &SearchFilters) -> bool {
@@ -85,18 +102,14 @@ pub fn note_matches(note: &Note, query: &SearchQuery, filters: &SearchFilters) -
     if query.text.is_empty() {
         return true;
     }
-    let mut haystack = format!(
-        "{} {}",
-        note.title.as_deref().unwrap_or("").to_lowercase(),
-        note.body.to_lowercase()
-    );
-    for link in &note.links {
-        haystack.push(' ');
-        haystack.push_str(&link.label.to_lowercase());
-        haystack.push(' ');
-        haystack.push_str(&link.url.to_lowercase());
-    }
-    haystack.contains(&query.text)
+    note.title
+        .as_deref()
+        .is_some_and(|title| contains_ignore_case(title, &query.text))
+        || contains_ignore_case(&note.body, &query.text)
+        || note.links.iter().any(|link| {
+            contains_ignore_case(&link.label, &query.text)
+                || contains_ignore_case(&link.url, &query.text)
+        })
 }
 
 pub fn sort_results(results: &mut [SearchResult], sort: SortBy) {

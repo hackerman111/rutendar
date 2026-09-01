@@ -94,6 +94,29 @@ impl Database {
             })?
             .collect::<rusqlite::Result<_>>()?)
     }
+
+    pub fn delete_tag(&mut self, tag_id: i64) -> StorageResult<()> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute("DELETE FROM event_tags WHERE tag_id = ?1", [tag_id])?;
+        transaction.execute("DELETE FROM tags WHERE id = ?1", [tag_id])?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_unused_tags(&self) -> StorageResult<usize> {
+        Ok(self.connection.execute(
+            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM event_tags)",
+            [],
+        )?)
+    }
+}
+
+pub(crate) fn cleanup_unused_tags_tx(transaction: &Transaction<'_>) -> StorageResult<()> {
+    transaction.execute(
+        "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM event_tags)",
+        [],
+    )?;
+    Ok(())
 }
 
 pub(crate) fn set_event_tags_tx(
@@ -123,5 +146,6 @@ pub(crate) fn set_event_tags_tx(
             params![event_id, tag_id],
         )?;
     }
+    cleanup_unused_tags_tx(transaction)?;
     Ok(())
 }

@@ -37,16 +37,20 @@ impl Importance {
             Self::High => Self::None,
         }
     }
-}
 
-impl fmt::Display for Importance {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    pub const fn as_str(self) -> &'static str {
+        match self {
             Self::None => "None",
             Self::Low => "Low",
             Self::Normal => "Normal",
             Self::High => "High",
-        })
+        }
+    }
+}
+
+impl fmt::Display for Importance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

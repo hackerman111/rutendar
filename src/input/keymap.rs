@@ -32,14 +32,20 @@ impl Keymap {
             InputMode::Search => self.search(key),
             InputMode::GotoDate => self.goto_date(key),
             InputMode::Confirm => match key.code {
-                KeyCode::Enter | KeyCode::Char('y' | 'Y' | 'д' | 'Д') => Action::Confirm(true),
-                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'н' | 'Н') => Action::Confirm(false),
+                KeyCode::Enter | KeyCode::Char('y' | 'Y' | 'д' | 'Д' | 'x' | 'X') => {
+                    Action::Confirm(true)
+                }
+                KeyCode::Esc | KeyCode::Char('n' | 'N' | 'н' | 'Н' | 'q') => {
+                    Action::Confirm(false)
+                }
                 _ => Action::Noop,
             },
             InputMode::Scope => match key.code {
-                KeyCode::Char('o' | 'O' | 'т' | 'Т') => Action::ChooseOccurrence,
-                KeyCode::Char('s' | 'S' | 'с' | 'С') => Action::ChooseSeries,
-                KeyCode::Esc => Action::Back,
+                KeyCode::Char('o' | 'O' | 'т' | 'Т' | 'j') | KeyCode::Down => {
+                    Action::ChooseOccurrence
+                }
+                KeyCode::Char('s' | 'S' | 'с' | 'С' | 'k') | KeyCode::Up => Action::ChooseSeries,
+                KeyCode::Esc | KeyCode::Char('q') => Action::Back,
                 _ => Action::Noop,
             },
             InputMode::Normal => self.normal(key),
@@ -47,9 +53,18 @@ impl Keymap {
     }
 
     fn editor(&self, key: KeyEvent) -> Action {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return match key.code {
+                KeyCode::Char('s') => Action::Submit,
+                KeyCode::Char('j') | KeyCode::Char('n') => Action::NextField,
+                KeyCode::Char('k') | KeyCode::Char('p') => Action::PreviousField,
+                KeyCode::Char('h') => Action::AdjustLeft,
+                KeyCode::Char('l') => Action::AdjustRight,
+                _ => Action::Noop,
+            };
+        }
         match key.code {
             KeyCode::Esc => Action::Back,
-            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Submit,
             KeyCode::Enter | KeyCode::Tab | KeyCode::Down => Action::NextField,
             KeyCode::BackTab | KeyCode::Up => Action::PreviousField,
             KeyCode::Left => Action::AdjustLeft,
@@ -81,9 +96,19 @@ impl Keymap {
     }
 
     fn normal(&mut self, key: KeyEvent) -> Action {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return match key.code {
+                KeyCode::Char('d') => Action::PageDown,
+                KeyCode::Char('u') => Action::PageUp,
+                KeyCode::Char('f') => Action::PageDown,
+                KeyCode::Char('b') => Action::PageUp,
+                _ => Action::Noop,
+            };
+        }
         if self.pending_g {
             self.pending_g = false;
             return match key.code {
+                KeyCode::Char('g') => Action::GoToTop,
                 KeyCode::Char('t') => Action::GoToToday,
                 KeyCode::Char('d') => Action::StartGotoDate,
                 _ => Action::Noop,
@@ -94,6 +119,10 @@ impl Keymap {
                 self.pending_g = true;
                 Action::Noop
             }
+            KeyCode::Char('G') | KeyCode::End => Action::GoToBottom,
+            KeyCode::Home => Action::GoToTop,
+            KeyCode::PageDown => Action::PageDown,
+            KeyCode::PageUp => Action::PageUp,
             KeyCode::Char('q') => Action::Quit,
             KeyCode::Char('h') | KeyCode::Left => Action::MoveLeft,
             KeyCode::Char('l') | KeyCode::Right => Action::MoveRight,
@@ -101,10 +130,13 @@ impl Keymap {
             KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
             KeyCode::Enter => Action::Open,
             KeyCode::Esc => Action::Back,
-            KeyCode::Char('n') => Action::Create,
+            KeyCode::Char('a') => Action::Create,
+            KeyCode::Char('n') => Action::NextDay,
+            KeyCode::Char('N') => Action::PreviousDay,
             KeyCode::Char('e') => Action::Edit,
-            KeyCode::Char('d') => Action::Delete,
-            KeyCode::Char('a') => Action::OpenAgenda,
+            KeyCode::Char('d') | KeyCode::Char('x') => Action::Delete,
+            KeyCode::Char('X') => Action::DeleteTag,
+            KeyCode::Char('/') => Action::OpenAgenda,
             KeyCode::Char('t') => Action::OpenUpcoming,
             KeyCode::Char('p') => Action::ChangeImportance,
             KeyCode::Char('w') => Action::SwitchView(View::Week),
@@ -112,8 +144,8 @@ impl Keymap {
             KeyCode::Char('m') => Action::SwitchView(View::Month),
             KeyCode::Char('Y') => Action::SwitchView(View::Year),
             KeyCode::Char('?') => Action::Help,
-            KeyCode::Char('/') => Action::StartSearch,
-            KeyCode::Tab => Action::ToggleFocus,
+            KeyCode::Tab => Action::NextView,
+            KeyCode::BackTab => Action::PreviousView,
             KeyCode::Char('f') => Action::CycleDateFilter,
             KeyCode::Char('r') => Action::CycleItemType,
             KeyCode::Char('i') => Action::CycleImportanceFilter,
@@ -137,6 +169,8 @@ mod tests {
     fn g_prefix_maps_to_semantic_actions() {
         let mut keymap = Keymap::new(&KeyConfig::default());
         let key = |character| KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE);
+        let ctrl_key = |character| KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL);
+
         assert!(matches!(
             keymap.map(key('g'), InputMode::Normal),
             Action::Noop
@@ -150,8 +184,70 @@ mod tests {
             Action::Noop
         ));
         assert!(matches!(
+            keymap.map(key('g'), InputMode::Normal),
+            Action::GoToTop
+        ));
+        assert!(matches!(
+            keymap.map(key('g'), InputMode::Normal),
+            Action::Noop
+        ));
+        assert!(matches!(
             keymap.map(key('d'), InputMode::Normal),
             Action::StartGotoDate
+        ));
+        assert!(matches!(
+            keymap.map(key('G'), InputMode::Normal),
+            Action::GoToBottom
+        ));
+        assert!(matches!(
+            keymap.map(ctrl_key('d'), InputMode::Normal),
+            Action::PageDown
+        ));
+        assert!(matches!(
+            keymap.map(ctrl_key('u'), InputMode::Normal),
+            Action::PageUp
+        ));
+        assert!(matches!(
+            keymap.map(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                InputMode::Normal
+            ),
+            Action::NextView
+        ));
+        assert!(matches!(
+            keymap.map(
+                KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE),
+                InputMode::Normal
+            ),
+            Action::PreviousView
+        ));
+        assert!(matches!(
+            keymap.map(key('x'), InputMode::Normal),
+            Action::Delete
+        ));
+        assert!(matches!(
+            keymap.map(key('d'), InputMode::Normal),
+            Action::Delete
+        ));
+        assert!(matches!(
+            keymap.map(key('X'), InputMode::Normal),
+            Action::DeleteTag
+        ));
+        assert!(matches!(
+            keymap.map(key('a'), InputMode::Normal),
+            Action::Create
+        ));
+        assert!(matches!(
+            keymap.map(key('n'), InputMode::Normal),
+            Action::NextDay
+        ));
+        assert!(matches!(
+            keymap.map(key('N'), InputMode::Normal),
+            Action::PreviousDay
+        ));
+        assert!(matches!(
+            keymap.map(key('/'), InputMode::Normal),
+            Action::OpenAgenda
         ));
     }
 }

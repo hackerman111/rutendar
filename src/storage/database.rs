@@ -25,6 +25,7 @@ impl Database {
         let connection = Connection::open(path)?;
         let mut database = Self { connection };
         database.migrate()?;
+        database.delete_unused_tags()?;
         Ok(database)
     }
 
@@ -33,6 +34,7 @@ impl Database {
         let connection = Connection::open_in_memory()?;
         let mut database = Self { connection };
         database.migrate()?;
+        database.delete_unused_tags()?;
         Ok(database)
     }
 
@@ -477,7 +479,33 @@ mod tests {
             [note_id],
             |row| row.get(0),
         )?;
-        assert_eq!((event_tags, links), (0, 0));
+        let tags: i64 = database
+            .connection
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))?;
+        assert_eq!((event_tags, links, tags), (0, 0, 0));
+        Ok(())
+    }
+
+    #[test]
+    fn tag_cleanup_and_manual_deletion() -> StorageResult<()> {
+        let mut database = Database::in_memory()?;
+        let id1 = database.create_event(&event(1), None, &["rust".into(), "calendar".into()])?;
+        let id2 = database.create_event(&event(2), None, &["rust".into()])?;
+
+        assert_eq!(database.search_tags("rust", 10)?.len(), 1);
+        assert_eq!(database.search_tags("calendar", 10)?.len(), 1);
+
+        // Deleting id1 should remove "calendar" because it's no longer used, but keep "rust"
+        database.delete_event(id1)?;
+        assert_eq!(database.search_tags("calendar", 10)?.len(), 0);
+        assert_eq!(database.search_tags("rust", 10)?.len(), 1);
+
+        // Manual deletion of tag "rust" should remove it from id2 and from tags table
+        let rust_tag = database.search_tags("rust", 1)?[0].clone();
+        database.delete_tag(rust_tag.id)?;
+        assert_eq!(database.search_tags("rust", 10)?.len(), 0);
+        assert_eq!(database.event_tags(id2)?.len(), 0);
+
         Ok(())
     }
 

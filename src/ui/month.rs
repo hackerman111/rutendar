@@ -2,12 +2,12 @@ use chrono::{Datelike, Duration};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    text::Line,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::widgets::{SELECTED, TODAY};
+use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, UNFOCUSED};
 use crate::{
     app::App,
     calendar::{month_start, week_start},
@@ -35,7 +35,13 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
     {
         frame.render_widget(
-            Paragraph::new(*header).alignment(Alignment::Center),
+            Paragraph::new(Span::styled(
+                *header,
+                Style::new()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .alignment(Alignment::Center),
             headers[index],
         );
     }
@@ -59,24 +65,74 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
                 .iter()
                 .filter(|item| item.date == date)
                 .count();
-            let mut lines = vec![Line::from(date.day().to_string())];
-            if date == app.state.today {
-                lines.push(Line::from("TODAY"));
-            }
-            if event_count > 0 || note_count > 0 {
-                lines.push(Line::from(format!("{}• {}>", event_count, note_count)));
-            }
+
             let selected = date == app.state.selected_date;
-            let mut style = if selected { SELECTED } else { Style::default() };
-            if date.month() != app.state.selected_date.month() {
-                style = style.fg(Color::DarkGray);
-            } else if date == app.state.today && !selected {
-                style = TODAY;
+            let is_today = date == app.state.today;
+            let is_curr_month = date.month() == app.state.selected_date.month();
+
+            let mut header_spans = Vec::new();
+            if selected {
+                header_spans.push(Span::styled(format!(" {:02} ", date.day()), SELECTED));
+            } else if is_today {
+                header_spans.push(Span::styled(format!(" {:02} ", date.day()), TODAY_BADGE));
+            } else if is_curr_month {
+                header_spans.push(Span::styled(
+                    format!(" {:02} ", date.day()),
+                    Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                header_spans.push(Span::styled(
+                    format!(" {:02} ", date.day()),
+                    Style::new().fg(Color::DarkGray),
+                ));
             }
+
+            if is_today && !selected {
+                header_spans.push(Span::styled(" •", TODAY));
+            }
+
+            let mut lines = vec![Line::from(header_spans)];
+
+            let mut metric_spans = Vec::new();
+            if event_count > 0 {
+                metric_spans.push(Span::styled(
+                    format!(" ●{event_count}"),
+                    if is_curr_month {
+                        Style::new().fg(Color::Cyan)
+                    } else {
+                        Style::new().fg(Color::DarkGray)
+                    },
+                ));
+            }
+            if note_count > 0 {
+                metric_spans.push(Span::styled(
+                    format!(" ◆{note_count}"),
+                    if is_curr_month {
+                        Style::new().fg(Color::Yellow)
+                    } else {
+                        Style::new().fg(Color::DarkGray)
+                    },
+                ));
+            }
+
+            if !metric_spans.is_empty() {
+                lines.push(Line::from(metric_spans));
+            }
+
+            let border_style = if selected {
+                FOCUSED
+            } else if is_today {
+                TODAY
+            } else {
+                UNFOCUSED
+            };
+
             frame.render_widget(
-                Paragraph::new(lines)
-                    .style(style)
-                    .block(Block::default().borders(Borders::ALL)),
+                Paragraph::new(lines).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(border_style),
+                ),
                 columns[day],
             );
         }
