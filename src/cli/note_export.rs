@@ -134,10 +134,11 @@ pub fn fetch_notes_for_period(
 pub fn run_notes_export(
     database: &Database,
     period: NotesPeriod,
+    target_date: Option<NaiveDate>,
     file_path: Option<&str>,
     stdout_mode: bool,
 ) -> Result<(), Box<dyn Error>> {
-    let today = Local::now().date_naive();
+    let today = target_date.unwrap_or_else(|| Local::now().date_naive());
     let notes = fetch_notes_for_period(database, period, today)?;
     let period_desc = match period {
         NotesPeriod::Day => format!("День ({})", today.format("%d.%m.%Y")),

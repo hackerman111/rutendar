@@ -71,11 +71,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             rutendar::cli::CliCommand::NotesExport {
                 period,
+                date,
                 file,
                 stdout,
             } => {
                 let database = Database::open(&paths.database)?;
-                rutendar::cli::run_notes_export(&database, period, file.as_deref(), stdout)?;
+                rutendar::cli::run_notes_export(&database, period, date, file.as_deref(), stdout)?;
             }
             rutendar::cli::CliCommand::Help => {
                 rutendar::cli::print_help();

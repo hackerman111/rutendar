@@ -32,6 +32,7 @@ pub enum CliCommand {
     NotesMenu,
     NotesExport {
         period: NotesPeriod,
+        date: Option<chrono::NaiveDate>,
         file: Option<String>,
         stdout: bool,
     },
@@ -113,14 +114,49 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
             Ok(Some(CliCommand::TaskList(filter)))
         }
         "--notes" | "-n" | "notes" => {
-            if args
-                .get(1)
-                .is_some_and(|s| s == "--export" || s == "-e" || s == "export")
-            {
-                Ok(Some(parse_notes_export_args(&args[2..])?))
-            } else {
-                Ok(Some(CliCommand::NotesMenu))
+            let sub = args.get(1).map(|s| s.as_str());
+            match sub {
+                Some("--export" | "-e" | "export") => {
+                    Ok(Some(parse_notes_export_args(&args[2..])?))
+                }
+                Some("daily" | "day" | "сегодня" | "день") => {
+                    let (target_date, file) = parse_daily_weekly_args(&args[2..])?;
+                    Ok(Some(CliCommand::NotesExport {
+                        period: NotesPeriod::Day,
+                        date: target_date,
+                        file: file.clone(),
+                        stdout: file.is_none(),
+                    }))
+                }
+                Some("weekly" | "week" | "неделя") => {
+                    let (target_date, file) = parse_daily_weekly_args(&args[2..])?;
+                    Ok(Some(CliCommand::NotesExport {
+                        period: NotesPeriod::Week,
+                        date: target_date,
+                        file: file.clone(),
+                        stdout: file.is_none(),
+                    }))
+                }
+                _ => Ok(Some(CliCommand::NotesMenu)),
             }
+        }
+        "daily" | "--daily" => {
+            let (target_date, file) = parse_daily_weekly_args(&args[1..])?;
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Day,
+                date: target_date,
+                file: file.clone(),
+                stdout: file.is_none(),
+            }))
+        }
+        "weekly" | "--weekly" => {
+            let (target_date, file) = parse_daily_weekly_args(&args[1..])?;
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Week,
+                date: target_date,
+                file: file.clone(),
+                stdout: file.is_none(),
+            }))
         }
         "--export-notes" => Ok(Some(parse_notes_export_args(&args[1..])?)),
         "--help" | "-h" | "help" => Ok(Some(CliCommand::Help)),
@@ -139,16 +175,59 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
     }
 }
 
+fn parse_date_arg(val: &str) -> Option<chrono::NaiveDate> {
+    use chrono::{Duration, Local};
+    match val.to_lowercase().as_str() {
+        "today" | "сегодня" => Some(Local::now().date_naive()),
+        "yesterday" | "вчера" => Some(Local::now().date_naive() - Duration::days(1)),
+        "tomorrow" | "завтра" => Some(Local::now().date_naive() + Duration::days(1)),
+        s => crate::model::parse_date(s).ok(),
+    }
+}
+
+fn parse_daily_weekly_args(
+    args: &[String],
+) -> Result<(Option<chrono::NaiveDate>, Option<String>), String> {
+    let mut date = None;
+    let mut file = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--file" | "-o" | "-f" => {
+                i += 1;
+                if i < args.len() {
+                    file = Some(args[i].clone());
+                } else {
+                    return Err("укажите путь к файлу после --file".into());
+                }
+            }
+            "--stdout" => {}
+            val => {
+                if let Some(parsed) = parse_date_arg(val) {
+                    date = Some(parsed);
+                } else if !val.starts_with('-') && file.is_none() && val.ends_with(".md") {
+                    file = Some(val.to_string());
+                } else {
+                    return Err(format!("неизвестный аргумент для команды: '{val}'"));
+                }
+            }
+        }
+        i += 1;
+    }
+    Ok((date, file))
+}
+
 fn parse_notes_export_args(args: &[String]) -> Result<CliCommand, String> {
     let mut period = NotesPeriod::All;
+    let mut date = None;
     let mut file = None;
     let mut stdout = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "day" | "today" | "сегодня" | "день" => period = NotesPeriod::Day,
-            "week" | "неделя" => period = NotesPeriod::Week,
-            "month" | "месяц" => period = NotesPeriod::Month,
+            "day" | "today" | "daily" | "сегодня" | "день" => period = NotesPeriod::Day,
+            "week" | "weekly" | "неделя" => period = NotesPeriod::Week,
+            "month" | "monthly" | "месяц" => period = NotesPeriod::Month,
             "all" | "все" => period = NotesPeriod::All,
             "--file" | "-o" | "-f" => {
                 i += 1;
@@ -159,19 +238,23 @@ fn parse_notes_export_args(args: &[String]) -> Result<CliCommand, String> {
                 }
             }
             "--stdout" => stdout = true,
-            val if !val.starts_with('-') && file.is_none() && val.ends_with(".md") => {
-                file = Some(val.to_string());
-            }
-            unknown => {
-                return Err(format!(
-                    "неизвестный аргумент для экспорта заметок: '{unknown}'"
-                ));
+            val => {
+                if let Some(parsed) = parse_date_arg(val) {
+                    date = Some(parsed);
+                } else if !val.starts_with('-') && file.is_none() && val.ends_with(".md") {
+                    file = Some(val.to_string());
+                } else {
+                    return Err(format!(
+                        "неизвестный аргумент для экспорта заметок: '{val}'"
+                    ));
+                }
             }
         }
         i += 1;
     }
     Ok(CliCommand::NotesExport {
         period,
+        date,
         file,
         stdout,
     })
@@ -189,6 +272,8 @@ pub fn print_help() {
     println!("  rutendar --task-add [опции]       Добавление нового задания");
     println!("  rutendar --task-toggle <ID>       Переключение статуса задания (--task-done)");
     println!("  rutendar --task-list [today|all]  Вывод списка заданий в терминал");
+    println!("  rutendar daily [дата]             Экспорт всех заметок за день в терминал");
+    println!("  rutendar weekly [дата]            Экспорт всех заметок за неделю в терминал");
     println!("  rutendar --notes [опции]          Интерактивное меню заметок и экспорт (-n)");
     println!("  rutendar --export-notes [период]  Экспорт заметок в Markdown [day|week|month|all]");
     println!("  rutendar --export [файл]          Экспорт базы данных в файл (-e)");
@@ -417,6 +502,7 @@ mod tests {
             parse_cli_command(&["--export-notes".into(), "week".into(), "--stdout".into()]),
             Ok(Some(CliCommand::NotesExport {
                 period: NotesPeriod::Week,
+                date: None,
                 file: None,
                 stdout: true,
             }))
@@ -431,19 +517,41 @@ mod tests {
             ]),
             Ok(Some(CliCommand::NotesExport {
                 period: NotesPeriod::Day,
+                date: None,
                 file: Some("my_notes.md".into()),
                 stdout: false,
             }))
         );
 
+        // Daily / Weekly shortcut parsing
+        assert_eq!(
+            parse_cli_command(&["daily".into()]),
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Day,
+                date: None,
+                file: None,
+                stdout: true,
+            }))
+        );
+        assert_eq!(
+            parse_cli_command(&["weekly".into()]),
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Week,
+                date: None,
+                file: None,
+                stdout: true,
+            }))
+        );
+
         // Run export to stdout
-        run_notes_export(&db, NotesPeriod::Day, None, true).unwrap();
+        run_notes_export(&db, NotesPeriod::Day, None, None, true).unwrap();
 
         // Run export to file
         let temp_file = std::env::temp_dir().join("test_notes_export.md");
         run_notes_export(
             &db,
             NotesPeriod::All,
+            None,
             Some(temp_file.to_str().unwrap()),
             false,
         )
