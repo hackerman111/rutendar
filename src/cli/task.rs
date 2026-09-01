@@ -67,19 +67,24 @@ pub fn run_task_add(database: &Database, args: &TaskAddArgs) -> Result<(), Box<d
 
     let date = if let Some(d) = &args.date {
         let clean = d.trim().to_lowercase();
-        let parsed = match clean.as_str() {
+        match clean.as_str() {
             "today" | "сегодня" => Some(Local::now().date_naive()),
             "tomorrow" | "завтра" => Some(Local::now().date_naive() + Duration::days(1)),
             val => Some(parse_date(val).map_err(|_| {
                 format!("неверный формат даты '{val}'. Используйте DD.MM.YYYY или today/tomorrow")
             })?),
-        };
-        parsed
+        }
     } else {
         None
     };
 
-    let importance = match args.importance.as_deref().unwrap_or("normal").to_lowercase().as_str() {
+    let importance = match args
+        .importance
+        .as_deref()
+        .unwrap_or("normal")
+        .to_lowercase()
+        .as_str()
+    {
         "high" | "3" | "!" | "высокая" => Importance::High,
         "low" | "1" | "низкая" => Importance::Low,
         "none" | "0" | "нет" => Importance::None,
@@ -137,8 +142,8 @@ pub fn run_task_list(database: &Database, filter_str: Option<&str>) -> Result<()
     }
 
     println!(
-        "  {:<5} {:<5} {:<3} {:<12} {}",
-        "ID", "СТАТ", "ВАЖ", "СРОК", "НАЗВАНИЕ"
+        "  {:<5} {:<5} {:<3} {:<12} НАЗВАНИЕ",
+        "ID", "СТАТ", "ВАЖ", "СРОК"
     );
     println!("  {}", "─".repeat(55));
 
@@ -236,13 +241,15 @@ pub fn run_task_menu(database: &Database) -> Result<(), Box<dyn Error>> {
                     };
                     selected = 0;
                 }
-                KeyCode::Up | KeyCode::Char('k') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                KeyCode::Up | KeyCode::Char('k')
+                    if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+                {
                     selected = selected.saturating_sub(1);
                 }
-                KeyCode::Down | KeyCode::Char('j') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if !filtered.is_empty() {
-                        selected = (selected + 1).min(filtered.len() - 1);
-                    }
+                KeyCode::Down | KeyCode::Char('j')
+                    if !key.modifiers.contains(KeyModifiers::CONTROL) && !filtered.is_empty() =>
+                {
+                    selected = (selected + 1).min(filtered.len() - 1);
                 }
                 KeyCode::Char(' ') => {
                     if let Some(task) = filtered.get(selected) {
@@ -366,11 +373,17 @@ fn render_inline_task_menu(
     let mut lines = Vec::new();
 
     if tasks.is_empty() {
-        lines.push(Line::from(vec![
-            Span::styled("   (нет заданий в этом фильтре)", Style::new().fg(Color::DarkGray)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "   (нет заданий в этом фильтре)",
+            Style::new().fg(Color::DarkGray),
+        )]));
     } else {
-        for (idx, task) in tasks.iter().enumerate().skip(scroll_offset).take(visible_capacity) {
+        for (idx, task) in tasks
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_capacity)
+        {
             let is_sel = idx == selected;
             let cursor = if is_sel { " › " } else { "   " };
             let cursor_style = if is_sel {
@@ -380,13 +393,19 @@ fn render_inline_task_menu(
             };
 
             let checkbox = if task.is_done {
-                Span::styled("[x] ", Style::new().fg(Color::Green).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "[x] ",
+                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )
             } else {
                 Span::styled("[ ] ", Style::new().fg(Color::Yellow))
             };
 
             let pri_span = match task.importance {
-                Importance::High => Span::styled("! ", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Importance::High => Span::styled(
+                    "! ",
+                    Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Importance::Normal => Span::styled("• ", Style::new().fg(Color::Rgb(255, 165, 0))),
                 Importance::Low => Span::styled("· ", Style::new().fg(Color::Gray)),
                 Importance::None => Span::styled("  ", Style::default()),
@@ -426,21 +445,40 @@ fn render_inline_task_menu(
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(Block::default().borders(Borders::LEFT).border_style(Style::new().fg(Color::DarkGray))),
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::new().fg(Color::DarkGray)),
+        ),
         rows[1],
     );
 
     // Footer shortcuts
     let footer_spans = vec![
-        Span::styled("[Space]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Space]",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Отметить  ", Style::new().fg(Color::DarkGray)),
-        Span::styled("[Tab]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Tab]",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Фильтр  ", Style::new().fg(Color::DarkGray)),
-        Span::styled("[a]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[a]",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Создать  ", Style::new().fg(Color::DarkGray)),
-        Span::styled("[d/x]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[d/x]",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Удалить  ", Style::new().fg(Color::DarkGray)),
-        Span::styled("[q]", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[q]",
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Выход", Style::new().fg(Color::DarkGray)),
     ];
     frame.render_widget(Paragraph::new(Line::from(footer_spans)), rows[2]);
