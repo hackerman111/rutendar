@@ -3,6 +3,7 @@ pub mod export;
 pub mod format;
 pub mod import;
 pub mod list;
+pub mod note_export;
 pub mod task;
 
 use std::path::PathBuf;
@@ -12,6 +13,7 @@ pub use export::run_export;
 pub use format::format_event_card;
 pub use import::run_import;
 pub use list::{Period, run_list};
+pub use note_export::{NotesPeriod, run_notes_export, run_notes_menu};
 pub use task::{TaskAddArgs, run_task_add, run_task_list, run_task_menu, run_task_toggle};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,11 +21,20 @@ pub enum CliCommand {
     List(Option<Period>),
     Add(AddArgs),
     Export(Option<PathBuf>),
-    Import { path: PathBuf, force: bool },
+    Import {
+        path: PathBuf,
+        force: bool,
+    },
     TaskMenu,
     TaskAdd(TaskAddArgs),
     TaskToggle(i64),
     TaskList(Option<String>),
+    NotesMenu,
+    NotesExport {
+        period: NotesPeriod,
+        file: Option<String>,
+        stdout: bool,
+    },
     Help,
 }
 
@@ -101,6 +112,17 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
             let filter = args.get(1).cloned();
             Ok(Some(CliCommand::TaskList(filter)))
         }
+        "--notes" | "-n" | "notes" => {
+            if args
+                .get(1)
+                .is_some_and(|s| s == "--export" || s == "-e" || s == "export")
+            {
+                Ok(Some(parse_notes_export_args(&args[2..])?))
+            } else {
+                Ok(Some(CliCommand::NotesMenu))
+            }
+        }
+        "--export-notes" => Ok(Some(parse_notes_export_args(&args[1..])?)),
         "--help" | "-h" | "help" => Ok(Some(CliCommand::Help)),
         unknown if unknown.starts_with('-') => Err(format!(
             "неизвестный флаг: '{unknown}'. Используйте --help для справки."
@@ -117,6 +139,44 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
     }
 }
 
+fn parse_notes_export_args(args: &[String]) -> Result<CliCommand, String> {
+    let mut period = NotesPeriod::All;
+    let mut file = None;
+    let mut stdout = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "day" | "today" | "сегодня" | "день" => period = NotesPeriod::Day,
+            "week" | "неделя" => period = NotesPeriod::Week,
+            "month" | "месяц" => period = NotesPeriod::Month,
+            "all" | "все" => period = NotesPeriod::All,
+            "--file" | "-o" | "-f" => {
+                i += 1;
+                if i < args.len() {
+                    file = Some(args[i].clone());
+                } else {
+                    return Err("укажите путь к файлу после --file".into());
+                }
+            }
+            "--stdout" => stdout = true,
+            val if !val.starts_with('-') && file.is_none() && val.ends_with(".md") => {
+                file = Some(val.to_string());
+            }
+            unknown => {
+                return Err(format!(
+                    "неизвестный аргумент для экспорта заметок: '{unknown}'"
+                ));
+            }
+        }
+        i += 1;
+    }
+    Ok(CliCommand::NotesExport {
+        period,
+        file,
+        stdout,
+    })
+}
+
 pub fn print_help() {
     println!("\x1b[1;36mRutendar\x1b[0m — локальный терминальный календарь\n");
     println!("ИСПОЛЬЗОВАНИЕ:");
@@ -129,6 +189,8 @@ pub fn print_help() {
     println!("  rutendar --task-add [опции]       Добавление нового задания");
     println!("  rutendar --task-toggle <ID>       Переключение статуса задания (--task-done)");
     println!("  rutendar --task-list [today|all]  Вывод списка заданий в терминал");
+    println!("  rutendar --notes [опции]          Интерактивное меню заметок и экспорт (-n)");
+    println!("  rutendar --export-notes [период]  Экспорт заметок в Markdown [day|week|month|all]");
     println!("  rutendar --export [файл]          Экспорт базы данных в файл (-e)");
     println!("  rutendar --import <файл> [-f]     Импорт базы данных из файла (-i)");
     println!("  rutendar --help                   Вывод этой справки (-h)\n");
@@ -145,6 +207,12 @@ pub fn print_help() {
     println!("  --date, -d <ДАТА>           Срок (DD.MM.YYYY, today, tomorrow)");
     println!("  --importance, -i <ВАЖНОСТЬ> Важность (none, low, normal, high)");
     println!("  --desc <ОПИСАНИЕ>           Описание задания\n");
+    println!("ОПЦИИ ДЛЯ --export-notes:");
+    println!(
+        "  [период]                    day (сегодня), week (неделя), month (месяц), all (все)"
+    );
+    println!("  --file, -o <ФАЙЛ>           Путь для сохранения файла .md");
+    println!("  --stdout                    Вывод содержимого в консоль\n");
 }
 
 #[cfg(test)]
@@ -324,5 +392,66 @@ mod tests {
         let _ = std::fs::remove_file(&export_path);
         let _ = std::fs::remove_file(&dest_db_path);
         let _ = std::fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    fn test_notes_cli_flow() {
+        let db = crate::storage::Database::in_memory().unwrap();
+        let today = chrono::Local::now().date_naive();
+        db.create_note(&crate::model::NewNote {
+            date: today,
+            title: Some("CLI Заметка".into()),
+            body: "Содержимое заметки".into(),
+        })
+        .unwrap();
+
+        assert_eq!(
+            parse_cli_command(&["--notes".into()]),
+            Ok(Some(CliCommand::NotesMenu))
+        );
+        assert_eq!(
+            parse_cli_command(&["-n".into()]),
+            Ok(Some(CliCommand::NotesMenu))
+        );
+        assert_eq!(
+            parse_cli_command(&["--export-notes".into(), "week".into(), "--stdout".into()]),
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Week,
+                file: None,
+                stdout: true,
+            }))
+        );
+        assert_eq!(
+            parse_cli_command(&[
+                "-n".into(),
+                "-e".into(),
+                "day".into(),
+                "-o".into(),
+                "my_notes.md".into()
+            ]),
+            Ok(Some(CliCommand::NotesExport {
+                period: NotesPeriod::Day,
+                file: Some("my_notes.md".into()),
+                stdout: false,
+            }))
+        );
+
+        // Run export to stdout
+        run_notes_export(&db, NotesPeriod::Day, None, true).unwrap();
+
+        // Run export to file
+        let temp_file = std::env::temp_dir().join("test_notes_export.md");
+        run_notes_export(
+            &db,
+            NotesPeriod::All,
+            Some(temp_file.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+        assert!(temp_file.exists());
+        let content = std::fs::read_to_string(&temp_file).unwrap();
+        assert!(content.contains("CLI Заметка"));
+        assert!(content.contains("Содержимое заметки"));
+        let _ = std::fs::remove_file(&temp_file);
     }
 }

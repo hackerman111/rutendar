@@ -748,4 +748,33 @@ mod tests {
         let _ = std::fs::remove_dir(&temp_dir);
         Ok(())
     }
+
+    #[test]
+    fn all_notes_loads_with_links() -> StorageResult<()> {
+        let database = Database::in_memory()?;
+        let note_id = database.create_note(&NewNote {
+            date: date(1),
+            title: Some("Заметка 1".into()),
+            body: "Текст заметки".into(),
+        })?;
+        database.create_link(&NewLink {
+            note_id,
+            label: "Ссылка".into(),
+            url: "https://example.com".into(),
+        })?;
+        database.create_note(&NewNote {
+            date: date(5),
+            title: None,
+            body: "Вторая заметка".into(),
+        })?;
+
+        let notes = database.all_notes()?;
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].title.as_deref(), Some("Заметка 1"));
+        assert_eq!(notes[0].links.len(), 1);
+        assert_eq!(notes[0].links[0].label, "Ссылка");
+        assert_eq!(notes[1].title, None);
+        assert!(notes[1].links.is_empty());
+        Ok(())
+    }
 }

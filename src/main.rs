@@ -65,6 +65,18 @@ fn run() -> Result<(), Box<dyn Error>> {
                 let database = Database::open(&paths.database)?;
                 rutendar::cli::run_task_list(&database, filter.as_deref())?;
             }
+            rutendar::cli::CliCommand::NotesMenu => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_notes_menu(&database)?;
+            }
+            rutendar::cli::CliCommand::NotesExport {
+                period,
+                file,
+                stdout,
+            } => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_notes_export(&database, period, file.as_deref(), stdout)?;
+            }
             rutendar::cli::CliCommand::Help => {
                 rutendar::cli::print_help();
             }

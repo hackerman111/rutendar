@@ -140,6 +140,29 @@ impl Database {
         Ok(notes)
     }
 
+    pub fn all_notes(&self) -> StorageResult<Vec<Note>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id, date, title, body FROM notes ORDER BY date, id")?;
+        let mut notes: Vec<Note> = statement
+            .query_map([], |row| {
+                Ok(Note {
+                    id: row.get(0)?,
+                    date: date_from_row(row, 1)?,
+                    title: row.get(2)?,
+                    body: row.get(3)?,
+                    links: Vec::new(),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let ids: Vec<_> = notes.iter().map(|note| note.id).collect();
+        let mut links = self.links_for_notes(&ids)?;
+        for note in &mut notes {
+            note.links = links.remove(&note.id).unwrap_or_default();
+        }
+        Ok(notes)
+    }
+
     pub(crate) fn links_for_notes(
         &self,
         ids: &[NoteId],
