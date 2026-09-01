@@ -45,6 +45,56 @@ impl Database {
         migrations::migrate(&mut self.connection)
     }
 
+    pub fn export(&self, destination: &Path) -> StorageResult<(u64, usize)> {
+        if let Some(parent) = destination.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        if destination.exists() {
+            std::fs::remove_file(destination)?;
+        }
+        let dest_str = destination
+            .to_str()
+            .ok_or_else(|| invalid_input("путь экспорта содержит недопустимые символы"))?;
+        self.connection.execute("VACUUM INTO ?1", [dest_str])?;
+        let file_size = std::fs::metadata(destination)?.len();
+        let event_count: usize = self
+            .connection
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
+        Ok((file_size, event_count))
+    }
+
+    pub fn validate_file(path: &Path) -> StorageResult<usize> {
+        if !path.exists() {
+            return Err(invalid_input("файл не существует"));
+        }
+        let connection = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        let integrity: String =
+            connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            return Err(invalid_input(
+                "база данных повреждена (integrity check failed)",
+            ));
+        }
+        let table_count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('events', 'schema_migrations')",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_count < 2 {
+            return Err(invalid_input(
+                "файл не является корректной базой данных rutendar",
+            ));
+        }
+        let event_count: usize =
+            connection.query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
+        Ok(event_count)
+    }
+
     pub fn search(
         &self,
         input: &str,
@@ -665,6 +715,37 @@ mod tests {
                 .connection
                 .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         assert_eq!(count, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn database_export_and_validate_file() -> StorageResult<()> {
+        let mut database = Database::in_memory()?;
+        database.create_event(&event(1), None, &["тест".into()], &[])?;
+        let temp_dir = std::env::temp_dir().join("rutendar_test_export");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let export_path = temp_dir.join("test_calendar.db");
+        if export_path.exists() {
+            let _ = std::fs::remove_file(&export_path);
+        }
+
+        let (file_size, count) = database.export(&export_path)?;
+        assert_eq!(count, 1);
+        assert!(file_size > 0);
+        assert!(export_path.exists());
+
+        let validated_count = Database::validate_file(&export_path)?;
+        assert_eq!(validated_count, 1);
+
+        // Invalid non-sqlite file validation test
+        let invalid_path = temp_dir.join("invalid.db");
+        std::fs::write(&invalid_path, b"not a sqlite database")?;
+        assert!(Database::validate_file(&invalid_path).is_err());
+
+        // Cleanup
+        let _ = std::fs::remove_file(&export_path);
+        let _ = std::fs::remove_file(&invalid_path);
+        let _ = std::fs::remove_dir(&temp_dir);
         Ok(())
     }
 }
