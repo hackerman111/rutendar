@@ -1,13 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Duration, NaiveDate};
 
+use super::{
+    exception::{ExceptionKind, RecurrenceException},
+    rule::{MAX_INTERVAL_WEEKS, Recurrence},
+};
 use crate::{
     calendar::week_start,
-    model::{Event, EventOccurrence, ExceptionKind, Recurrence, RecurrenceException, Tag},
+    model::{Event, EventOccurrence, Tag},
 };
-
-pub const MAX_INTERVAL_WEEKS: u32 = 5_200;
 
 pub fn expand_weekly(
     event: &Event,
@@ -53,7 +55,7 @@ pub fn expand_weekly(
     };
     let mut ordinal = 0_u32;
     let mut occurrences = Vec::new();
-    let mut added_replacements = std::collections::HashSet::new();
+    let mut added_replacements = HashSet::new();
     let mut weekdays = rule.weekdays.clone();
     weekdays.sort_by_key(|day| day.num_days_from_monday());
     weekdays.dedup();
@@ -137,9 +139,8 @@ pub fn expand_weekly(
 mod tests {
     use chrono::{Datelike, NaiveTime, Timelike, Weekday};
 
-    use crate::model::{Frequency, Importance};
-
     use super::*;
+    use crate::model::{Frequency, Importance};
 
     fn event() -> Event {
         Event {

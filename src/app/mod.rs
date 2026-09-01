@@ -1,162 +1,29 @@
-use std::{collections::HashMap, error::Error};
+pub mod action;
+pub mod state;
+pub mod update;
 
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveTime, Weekday};
+use std::error::Error;
+
+use chrono::{Local, NaiveDate};
+
+pub use action::Action;
+pub use state::*;
 
 use crate::{
-    calendar::{month_end, month_start, move_month, week_end, week_start, year_end, year_start},
+    calendar::{month_end, month_start, week_end, week_start, year_end, year_start},
     config::Config,
-    external,
-    model::{
-        Event, EventId, EventOccurrence, Importance, Link, LinkId, NewEvent, NewLink, NewNote,
-        NewRecurrence, Note, NoteId, RecurrenceId, Tag, parse_date, parse_time,
-    },
-    search::{DateFilter, ItemType, SearchFilters, SearchResult, SortBy, TagMatching},
+    model::{EventOccurrence, Link, Note},
+    search::SearchResult,
     storage::Database,
 };
 
 pub type AppResult<T> = Result<T, Box<dyn Error>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum View {
-    Week,
-    Day,
-    Month,
-    Year,
-}
-
-impl View {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Week => "WEEK",
-            Self::Day => "DAY",
-            Self::Month => "MONTH",
-            Self::Year => "YEAR",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusedPane {
-    Events,
-    Notes,
-    Links,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Overlay {
-    Agenda,
-    Upcoming,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputMode {
-    Normal,
-    Editor,
-    Search,
-    Confirm,
-    Scope,
-    GotoDate,
-}
-
-#[derive(Debug, Clone)]
-pub enum Action {
-    Quit,
-    MoveLeft,
-    MoveRight,
-    MoveUp,
-    MoveDown,
-    Open,
-    Back,
-    Create,
-    Edit,
-    Delete,
-    ChangeImportance,
-    OpenAgenda,
-    OpenUpcoming,
-    SwitchView(View),
-    GoToToday,
-    StartGotoDate,
-    Help,
-    OpenLink,
-    CopyLink,
-    ToggleFocus,
-    StartSearch,
-    Input(char),
-    Backspace,
-    NextField,
-    PreviousField,
-    AdjustLeft,
-    AdjustRight,
-    Submit,
-    Confirm(bool),
-    ChooseOccurrence,
-    ChooseSeries,
-    CycleDateFilter,
-    CycleItemType,
-    CycleImportanceFilter,
-    CycleSort,
-    ToggleTagMatching,
-    PreviousTagFilter,
-    NextTagFilter,
-    ToggleTagFilter,
-    Noop,
-}
-
-mod form;
-mod update;
-
-pub use crate::model::UpcomingOrder as UpcomingSort;
-pub use form::{
-    DeleteTarget, Editor, EventForm, EventTarget, LinkForm, NoteForm, Popup, ScopeOperation,
-};
-
-#[derive(Debug, Default)]
-pub struct AgendaState {
-    pub query: String,
-    pub filters: SearchFilters,
-    pub items: Vec<SearchResult>,
-    pub selected: usize,
-    pub searching: bool,
-    pub available_tags: Vec<Tag>,
-    pub tag_cursor: usize,
-}
-
-#[derive(Debug, Default)]
-pub struct UpcomingState {
-    pub items: Vec<EventOccurrence>,
-    pub selected: usize,
-    pub sort: UpcomingSort,
-    pub links_by_date: HashMap<NaiveDate, Vec<Link>>,
-}
-
-#[derive(Debug)]
-pub struct AppState {
-    pub today: NaiveDate,
-    pub selected_date: NaiveDate,
-    pub active_view: View,
-    pub focused_pane: FocusedPane,
-    pub selected_event: usize,
-    pub selected_note: usize,
-    pub selected_link: usize,
-    pub overlay: Option<Overlay>,
-    pub popup: Option<Popup>,
-    pub input_mode: InputMode,
-    pub agenda: AgendaState,
-    pub upcoming: UpcomingState,
-    pub occurrences: Vec<EventOccurrence>,
-    pub notes: Vec<Note>,
-    pub next: Vec<EventOccurrence>,
-    pub next_total: usize,
-    pub tag_suggestions: Vec<Tag>,
-    pub status_message: Option<String>,
-    loaded_range: Option<(NaiveDate, NaiveDate)>,
-}
-
 pub struct App {
     pub state: AppState,
     pub config: Config,
-    database: Database,
-    last_clock_minute: i64,
+    pub(crate) database: Database,
+    pub(crate) last_clock_minute: i64,
 }
 
 impl App {
@@ -216,7 +83,7 @@ impl App {
         self.state.input_mode
     }
 
-    fn view_range(&self) -> (NaiveDate, NaiveDate) {
+    pub(crate) fn view_range(&self) -> (NaiveDate, NaiveDate) {
         match self.state.active_view {
             View::Week => (
                 week_start(self.state.selected_date),
@@ -234,7 +101,7 @@ impl App {
         }
     }
 
-    fn refresh_calendar(&mut self) -> AppResult<()> {
+    pub(crate) fn refresh_calendar(&mut self) -> AppResult<()> {
         let range = self.view_range();
         if self.state.loaded_range != Some(range) {
             self.state.occurrences = self.database.events_between(range.0, range.1)?;
@@ -245,7 +112,7 @@ impl App {
         Ok(())
     }
 
-    fn refresh_upcoming(&mut self) -> AppResult<()> {
+    pub(crate) fn refresh_upcoming(&mut self) -> AppResult<()> {
         let now = Local::now();
         let time_page = self.database.upcoming_events(
             now,
@@ -292,7 +159,7 @@ impl App {
         Ok(())
     }
 
-    fn refresh_agenda(&mut self) -> AppResult<()> {
+    pub(crate) fn refresh_agenda(&mut self) -> AppResult<()> {
         self.state.agenda.available_tags = self.database.search_tags("", 1_000)?;
         self.state.agenda.tag_cursor = self
             .state
@@ -312,7 +179,7 @@ impl App {
         Ok(())
     }
 
-    fn refresh_after_change(&mut self) -> AppResult<()> {
+    pub(crate) fn refresh_after_change(&mut self) -> AppResult<()> {
         self.state.loaded_range = None;
         self.refresh_calendar()?;
         self.refresh_upcoming()?;
@@ -322,7 +189,7 @@ impl App {
         Ok(())
     }
 
-    fn clamp_selections(&mut self) {
+    pub(crate) fn clamp_selections(&mut self) {
         let event_count = self.events_on_selected_date().count();
         let note_count = self.notes_on_selected_date().count();
         self.state.selected_event = self.state.selected_event.min(event_count.saturating_sub(1));

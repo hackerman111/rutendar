@@ -1,4 +1,12 @@
+use chrono::Duration;
+
 use super::*;
+use crate::{
+    calendar::move_month,
+    external,
+    model::{EventId, Importance, NewEvent, NewLink, NewNote, parse_date},
+    search::{DateFilter, ItemType, SearchResult, SortBy, TagMatching},
+};
 
 impl App {
     pub fn update(&mut self, action: Action) -> bool {

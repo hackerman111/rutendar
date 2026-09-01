@@ -1,40 +1,20 @@
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    path::Path,
-};
+use std::{error::Error, path::Path};
 
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, Weekday};
-use rusqlite::{
-    Connection, OptionalExtension, Row, Transaction, params, params_from_iter, types::Type,
-};
+use chrono::{Duration, Local, NaiveDate, NaiveTime, Weekday};
+use rusqlite::{Connection, Row, types::Type};
 
+use super::{StorageResult, migrations};
 use crate::{
-    model::{
-        Event, EventId, EventOccurrence, ExceptionKind, Frequency, Importance, Link, LinkId,
-        NewEvent, NewLink, NewNote, NewRecurrence, Note, NoteId, Recurrence, RecurrenceException,
-        RecurrenceId, Tag, UpcomingOrder, normalize_tag,
-    },
-    recurrence::{MAX_INTERVAL_WEEKS, expand_weekly},
+    model::{Event, EventOccurrence, Frequency, Importance, Recurrence},
+    recurrence::MAX_INTERVAL_WEEKS,
     search::{
-        SearchFilters, SearchResult, date_range, event_matches, note_matches, parse_query,
-        sort_results,
+        DateFilter, SearchFilters, SearchResult, date_range, event_matches, note_matches,
+        parse_query, sort_results,
     },
 };
-
-mod migrations;
-mod operations;
-use operations::set_event_tags_tx;
-
-pub type StorageResult<T> = Result<T, Box<dyn Error>>;
 
 pub struct Database {
-    connection: Connection,
-}
-
-pub struct UpcomingEvents {
-    pub items: Vec<EventOccurrence>,
-    pub total: usize,
+    pub(super) connection: Connection,
 }
 
 impl Database {
@@ -49,7 +29,7 @@ impl Database {
     }
 
     #[cfg(test)]
-    fn in_memory() -> StorageResult<Self> {
+    pub fn in_memory() -> StorageResult<Self> {
         let connection = Connection::open_in_memory()?;
         let mut database = Self { connection };
         database.migrate()?;
@@ -60,284 +40,74 @@ impl Database {
         migrations::migrate(&mut self.connection)
     }
 
-    pub fn events_between(
+    pub fn search(
         &self,
-        range_start: NaiveDate,
-        range_end: NaiveDate,
-    ) -> StorageResult<Vec<EventOccurrence>> {
-        if range_start > range_end {
-            return Ok(Vec::new());
-        }
-
-        let mut direct_statement = self.connection.prepare(
-            "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
-             FROM events
-             WHERE recurrence_id IS NULL
-               AND id NOT IN (
-                   SELECT replacement_event_id FROM recurrence_exceptions
-                   WHERE replacement_event_id IS NOT NULL
-               )
-               AND start_date BETWEEN ?1 AND ?2",
-        )?;
-        let direct_events: Vec<Event> = direct_statement
-            .query_map(
-                params![date_string(range_start), date_string(range_end)],
-                event_from_row,
-            )?
-            .collect::<rusqlite::Result<_>>()?;
-
-        let mut recurring_statement = self.connection.prepare(
-            "SELECT e.id, e.title, e.description, e.start_date, e.start_time, e.end_time,
-                    e.importance, e.recurrence_id,
-                    r.id, r.frequency, r.interval, r.weekdays, r.start_date, r.end_date, r.count
-             FROM events e
-             JOIN recurrences r ON r.id = e.recurrence_id
-             WHERE (r.start_date <= ?2 AND (r.end_date IS NULL OR r.end_date >= ?1))
-                OR EXISTS (
-                    SELECT 1 FROM recurrence_exceptions x
-                    JOIN events replacement ON replacement.id = x.replacement_event_id
-                    WHERE x.recurrence_id = r.id
-                      AND replacement.start_date BETWEEN ?1 AND ?2
-                )",
-        )?;
-        let recurring: Vec<(Event, Recurrence)> = recurring_statement
-            .query_map(
-                params![date_string(range_start), date_string(range_end)],
-                |row| Ok((event_from_row(row)?, recurrence_from_row(row, 8)?)),
-            )?
-            .collect::<rusqlite::Result<_>>()?;
-
-        let recurrence_ids: Vec<_> = recurring.iter().map(|(_, rule)| rule.id).collect();
-        let exceptions = self.exceptions_for(&recurrence_ids, range_start, range_end)?;
-        let replacement_ids: Vec<_> = exceptions
-            .values()
-            .flatten()
-            .filter_map(|exception| exception.replacement_event_id)
-            .collect();
-        let replacement_events = self.events_by_ids(&replacement_ids)?;
-
-        let mut all_event_ids: Vec<_> = direct_events.iter().map(|event| event.id).collect();
-        all_event_ids.extend(recurring.iter().map(|(event, _)| event.id));
-        all_event_ids.extend(replacement_ids.iter().copied());
-        all_event_ids.sort_unstable();
-        all_event_ids.dedup();
-        let tags = self.tags_for_events(&all_event_ids)?;
-
-        let replacements: HashMap<_, _> = replacement_events
+        input: &str,
+        filters: &SearchFilters,
+        today: NaiveDate,
+    ) -> StorageResult<Vec<SearchResult>> {
+        let (start, end) = if filters.date == DateFilter::Upcoming {
+            let (_, end) = self.data_bounds(today)?;
+            (today, end)
+        } else {
+            date_range(filters.date, today)
+                .map(Ok)
+                .unwrap_or_else(|| self.data_bounds(today))?
+        };
+        let query = parse_query(input);
+        let mut results: Vec<SearchResult> = self
+            .events_between(start, end)?
             .into_iter()
-            .map(|event| {
-                let event_tags = tags.get(&event.id).cloned().unwrap_or_default();
-                (event.id, (event, event_tags))
-            })
+            .filter(|event| event_matches(event, &query, filters))
+            .map(SearchResult::Event)
             .collect();
-        let mut occurrences: Vec<_> = direct_events
-            .iter()
-            .map(|event| {
-                EventOccurrence::from_event(event, tags.get(&event.id).cloned().unwrap_or_default())
-            })
-            .collect();
-        for (event, rule) in recurring {
-            occurrences.extend(expand_weekly(
-                &event,
-                &rule,
-                exceptions
-                    .get(&rule.id)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default(),
-                &replacements,
-                tags.get(&event.id).map(Vec::as_slice).unwrap_or_default(),
-                range_start,
-                range_end,
-            ));
-        }
-        occurrences.sort_by(occurrence_order);
-        Ok(occurrences)
-    }
-
-    fn exceptions_for(
-        &self,
-        recurrence_ids: &[RecurrenceId],
-        range_start: NaiveDate,
-        range_end: NaiveDate,
-    ) -> rusqlite::Result<HashMap<RecurrenceId, Vec<RecurrenceException>>> {
-        if recurrence_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let placeholders = sql_placeholders(recurrence_ids.len());
-        let sql = format!(
-            "SELECT x.recurrence_id, x.original_date, x.kind, x.replacement_event_id
-             FROM recurrence_exceptions x
-             LEFT JOIN events replacement ON replacement.id = x.replacement_event_id
-             WHERE x.recurrence_id IN ({placeholders})
-               AND (x.original_date BETWEEN ? AND ?
-                    OR replacement.start_date BETWEEN ? AND ?)"
+        results.extend(
+            self.notes_between(start, end)?
+                .into_iter()
+                .filter(|note| note_matches(note, &query, filters))
+                .map(SearchResult::Note),
         );
-        let start = date_string(range_start);
-        let end = date_string(range_end);
-        let mut parameters: Vec<rusqlite::types::Value> = recurrence_ids
-            .iter()
-            .copied()
-            .map(rusqlite::types::Value::Integer)
-            .collect();
-        parameters.extend([
-            rusqlite::types::Value::Text(start.clone()),
-            rusqlite::types::Value::Text(end.clone()),
-            rusqlite::types::Value::Text(start),
-            rusqlite::types::Value::Text(end),
-        ]);
-        let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(parameters.iter()), |row| {
-            let kind: String = row.get(2)?;
-            Ok(RecurrenceException {
-                recurrence_id: row.get(0)?,
-                original_date: date_from_row(row, 1)?,
-                kind: match kind.as_str() {
-                    "cancelled" => ExceptionKind::Cancelled,
-                    "modified" => ExceptionKind::Modified,
-                    _ => return Err(invalid_column(2, "invalid recurrence exception kind")),
-                },
-                replacement_event_id: row.get(3)?,
-            })
-        })?;
-        let mut result: HashMap<_, Vec<_>> = HashMap::new();
-        for exception in rows {
-            let exception = exception?;
-            result
-                .entry(exception.recurrence_id)
-                .or_default()
-                .push(exception);
-        }
-        Ok(result)
+        sort_results(&mut results, filters.sort);
+        Ok(results)
     }
 
-    fn events_by_ids(&self, ids: &[EventId]) -> rusqlite::Result<Vec<Event>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let sql = format!(
-            "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
-             FROM events WHERE id IN ({})",
-            sql_placeholders(ids.len())
-        );
-        let mut statement = self.connection.prepare(&sql)?;
-        statement
-            .query_map(params_from_iter(ids), event_from_row)?
-            .collect()
-    }
-
-    fn tags_for_events(&self, ids: &[EventId]) -> rusqlite::Result<HashMap<EventId, Vec<Tag>>> {
-        if ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let sql = format!(
-            "SELECT et.event_id, t.id, t.name, t.normalized_name
-             FROM event_tags et JOIN tags t ON t.id = et.tag_id
-             WHERE et.event_id IN ({}) ORDER BY t.normalized_name",
-            sql_placeholders(ids.len())
-        );
-        let mut statement = self.connection.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(ids), |row| {
-            Ok((
-                row.get(0)?,
-                Tag {
-                    id: row.get(1)?,
-                    name: row.get(2)?,
-                    normalized_name: row.get(3)?,
-                },
-            ))
-        })?;
-        let mut result: HashMap<_, Vec<_>> = HashMap::new();
-        for row in rows {
-            let (event_id, tag) = row?;
-            result.entry(event_id).or_default().push(tag);
-        }
-        Ok(result)
-    }
-
-    pub fn get_event(&self, id: EventId) -> StorageResult<Option<Event>> {
-        Ok(self
-            .connection
-            .query_row(
-                "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
-                 FROM events WHERE id = ?1",
-                [id],
-                event_from_row,
-            )
-            .optional()?)
-    }
-
-    pub fn get_recurrence(&self, id: RecurrenceId) -> StorageResult<Option<Recurrence>> {
-        Ok(self
-            .connection
-            .query_row(
-                "SELECT id, frequency, interval, weekdays, start_date, end_date, count
-                 FROM recurrences WHERE id = ?1",
-                [id],
-                |row| recurrence_from_row(row, 0),
-            )
-            .optional()?)
-    }
-
-    pub fn event_for_recurrence(
-        &self,
-        recurrence_id: RecurrenceId,
-    ) -> StorageResult<Option<Event>> {
-        Ok(self
-            .connection
-            .query_row(
-                "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
-                 FROM events WHERE recurrence_id = ?1",
-                [recurrence_id],
-                event_from_row,
-            )
-            .optional()?)
-    }
-
-    pub fn event_tags(&self, id: EventId) -> StorageResult<Vec<Tag>> {
-        Ok(self.tags_for_events(&[id])?.remove(&id).unwrap_or_default())
-    }
-
-    pub fn set_event_tags(&mut self, event_id: EventId, names: &[String]) -> StorageResult<()> {
-        if self.get_event(event_id)?.is_none() {
-            return Err(invalid_input("event does not exist"));
-        }
-        let transaction = self.connection.transaction()?;
-        set_event_tags_tx(&transaction, event_id, names)?;
-        transaction.commit()?;
-        Ok(())
-    }
-
-    pub fn upcoming_events(
-        &self,
-        now: DateTime<Local>,
-        limit: usize,
-        order: UpcomingOrder,
-    ) -> StorageResult<UpcomingEvents> {
-        let today = now.date_naive();
-        let current_time = now.time();
-        let (_, range_end) = self.data_bounds(today)?;
-        let mut events = self.events_between(today, range_end)?;
-        events.retain(|event| {
-            event.date > today || event.start_time.is_none_or(|time| time >= current_time)
-        });
-        if order == UpcomingOrder::Importance {
-            events.sort_by(|left, right| {
-                right
-                    .importance
-                    .cmp(&left.importance)
-                    .then_with(|| occurrence_order(left, right))
-            });
-        }
-        let total = events.len();
-        events.truncate(limit);
-        Ok(UpcomingEvents {
-            items: events,
-            total,
-        })
+    pub(crate) fn data_bounds(&self, today: NaiveDate) -> StorageResult<(NaiveDate, NaiveDate)> {
+        let (minimum, maximum): (Option<String>, Option<String>) = self.connection.query_row(
+            "SELECT MIN(value), MAX(value) FROM (
+                 SELECT start_date AS value FROM events
+                 UNION ALL SELECT date FROM notes
+                 UNION ALL SELECT start_date FROM recurrences
+                 UNION ALL SELECT end_date FROM recurrences WHERE end_date IS NOT NULL
+             )",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let parse = |value: Option<String>| -> StorageResult<Option<NaiveDate>> {
+            value
+                .map(|value| NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(Into::into))
+                .transpose()
+        };
+        let start = parse(minimum)?.unwrap_or(today);
+        let stored_end = parse(maximum)?.unwrap_or(today);
+        let max_open_interval: Option<i64> = self.connection.query_row(
+            "SELECT MAX(interval) FROM recurrences WHERE end_date IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let end = if let Some(interval) = max_open_interval {
+            if !(1..=i64::from(MAX_INTERVAL_WEEKS)).contains(&interval) {
+                return Err(invalid_input("stored recurrence interval is invalid"));
+            }
+            let horizon = Duration::days(366).max(Duration::weeks(interval + 1));
+            stored_end.max(today.checked_add_signed(horizon).unwrap_or(NaiveDate::MAX))
+        } else {
+            stored_end
+        };
+        Ok((start, end.max(start)))
     }
 }
 
-fn event_from_row(row: &Row<'_>) -> rusqlite::Result<Event> {
+pub(crate) fn event_from_row(row: &Row<'_>) -> rusqlite::Result<Event> {
     Ok(Event {
         id: row.get(0)?,
         title: row.get(1)?,
@@ -350,7 +120,7 @@ fn event_from_row(row: &Row<'_>) -> rusqlite::Result<Event> {
     })
 }
 
-fn recurrence_from_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Recurrence> {
+pub(crate) fn recurrence_from_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Recurrence> {
     let frequency: String = row.get(offset + 1)?;
     if frequency != "weekly" {
         return Err(invalid_column(
@@ -374,14 +144,17 @@ fn recurrence_from_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Recurre
     })
 }
 
-fn date_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<NaiveDate> {
+pub(crate) fn date_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<NaiveDate> {
     let value: String = row.get(index)?;
     NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
     })
 }
 
-fn optional_date_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<NaiveDate>> {
+pub(crate) fn optional_date_from_row(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<NaiveDate>> {
     let value: Option<String> = row.get(index)?;
     value
         .map(|value| {
@@ -392,7 +165,10 @@ fn optional_date_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<Optio
         .transpose()
 }
 
-fn optional_time_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<NaiveTime>> {
+pub(crate) fn optional_time_from_row(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<NaiveTime>> {
     let value: Option<String> = row.get(index)?;
     value
         .map(|value| {
@@ -403,7 +179,7 @@ fn optional_time_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<Optio
         .transpose()
 }
 
-fn invalid_column(index: usize, message: &'static str) -> rusqlite::Error {
+pub(crate) fn invalid_column(index: usize, message: &'static str) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
         index,
         Type::Text,
@@ -411,21 +187,24 @@ fn invalid_column(index: usize, message: &'static str) -> rusqlite::Error {
     )
 }
 
-fn date_string(value: NaiveDate) -> String {
+pub(crate) fn date_string(value: NaiveDate) -> String {
     value.format("%Y-%m-%d").to_string()
 }
 
-fn time_string(value: Option<NaiveTime>) -> Option<String> {
+pub(crate) fn time_string(value: Option<NaiveTime>) -> Option<String> {
     value.map(|time| time.format("%H:%M:%S").to_string())
 }
 
-fn sql_placeholders(count: usize) -> String {
+pub(crate) fn sql_placeholders(count: usize) -> String {
     std::iter::repeat_n("?", count)
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn occurrence_order(left: &EventOccurrence, right: &EventOccurrence) -> std::cmp::Ordering {
+pub(crate) fn occurrence_order(
+    left: &EventOccurrence,
+    right: &EventOccurrence,
+) -> std::cmp::Ordering {
     left.date
         .cmp(&right.date)
         .then_with(|| left.start_time.cmp(&right.start_time))
@@ -433,7 +212,7 @@ fn occurrence_order(left: &EventOccurrence, right: &EventOccurrence) -> std::cmp
         .then_with(|| left.title.cmp(&right.title))
 }
 
-fn encode_weekdays(days: &[Weekday]) -> String {
+pub(crate) fn encode_weekdays(days: &[Weekday]) -> String {
     let mut values: Vec<_> = days.iter().map(|day| day.num_days_from_monday()).collect();
     values.sort_unstable();
     values.dedup();
@@ -444,7 +223,7 @@ fn encode_weekdays(days: &[Weekday]) -> String {
         .join(",")
 }
 
-fn decode_weekdays(value: &str) -> rusqlite::Result<Vec<Weekday>> {
+pub(crate) fn decode_weekdays(value: &str) -> rusqlite::Result<Vec<Weekday>> {
     value
         .split(',')
         .filter(|part| !part.is_empty())
@@ -461,19 +240,22 @@ fn decode_weekdays(value: &str) -> rusqlite::Result<Vec<Weekday>> {
         .collect()
 }
 
-fn now_string() -> String {
+pub(crate) fn now_string() -> String {
     Local::now().to_rfc3339()
 }
 
-fn invalid_input(message: &'static str) -> Box<dyn Error> {
+pub(crate) fn invalid_input(message: &'static str) -> Box<dyn Error> {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, message).into()
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Weekday};
+    use std::collections::HashSet;
+
+    use chrono::TimeZone;
 
     use super::*;
+    use crate::model::{NewEvent, NewLink, NewNote, NewRecurrence, UpcomingOrder};
 
     fn date(day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 9, day).unwrap()

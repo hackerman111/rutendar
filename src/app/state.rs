@@ -1,4 +1,78 @@
-use super::*;
+use std::collections::HashMap;
+
+use chrono::{Datelike, NaiveDate, NaiveTime, Weekday};
+
+use super::AppResult;
+use crate::{
+    model::{
+        Event, EventId, EventOccurrence, Importance, Link, LinkId, NewEvent, NewRecurrence, Note,
+        NoteId, Recurrence, RecurrenceId, Tag, parse_date, parse_time,
+    },
+    search::{SearchFilters, SearchResult},
+};
+
+pub use crate::model::UpcomingOrder as UpcomingSort;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Week,
+    Day,
+    Month,
+    Year,
+}
+
+impl View {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Week => "WEEK",
+            Self::Day => "DAY",
+            Self::Month => "MONTH",
+            Self::Year => "YEAR",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPane {
+    Events,
+    Notes,
+    Links,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overlay {
+    Agenda,
+    Upcoming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    Normal,
+    Editor,
+    Search,
+    Confirm,
+    Scope,
+    GotoDate,
+}
+
+#[derive(Debug, Default)]
+pub struct AgendaState {
+    pub query: String,
+    pub filters: SearchFilters,
+    pub items: Vec<SearchResult>,
+    pub selected: usize,
+    pub searching: bool,
+    pub available_tags: Vec<Tag>,
+    pub tag_cursor: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct UpcomingState {
+    pub items: Vec<EventOccurrence>,
+    pub selected: usize,
+    pub sort: UpcomingSort,
+    pub links_by_date: HashMap<NaiveDate, Vec<Link>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct EventForm {
@@ -19,7 +93,7 @@ pub struct EventForm {
 impl EventForm {
     pub const FIELD_COUNT: usize = 11;
 
-    pub(super) fn new(date: NaiveDate) -> Self {
+    pub fn new(date: NaiveDate) -> Self {
         Self {
             title: String::new(),
             date: date.format("%d.%m.%Y").to_string(),
@@ -36,11 +110,7 @@ impl EventForm {
         }
     }
 
-    pub(super) fn from_event(
-        event: &Event,
-        tags: &[Tag],
-        recurrence: Option<&crate::model::Recurrence>,
-    ) -> Self {
+    pub fn from_event(event: &Event, tags: &[Tag], recurrence: Option<&Recurrence>) -> Self {
         Self {
             title: event.title.clone(),
             date: event.start_date.format("%d.%m.%Y").to_string(),
@@ -79,7 +149,7 @@ impl EventForm {
         }
     }
 
-    pub(super) fn from_occurrence(event: &EventOccurrence) -> Self {
+    pub fn from_occurrence(event: &EventOccurrence) -> Self {
         let synthetic = Event {
             id: event.event_id,
             title: event.title.clone(),
@@ -114,7 +184,7 @@ impl EventForm {
         ]
     }
 
-    pub(super) fn push(&mut self, character: char) {
+    pub fn push(&mut self, character: char) {
         match self.active {
             0 => self.title.push(character),
             1 => self.date.push(character),
@@ -129,7 +199,7 @@ impl EventForm {
         }
     }
 
-    pub(super) fn backspace(&mut self) {
+    pub fn backspace(&mut self) {
         match self.active {
             0 => _ = self.title.pop(),
             1 => _ = self.date.pop(),
@@ -144,7 +214,7 @@ impl EventForm {
         }
     }
 
-    pub(super) fn adjust(&mut self, forward: bool) {
+    pub fn adjust(&mut self, forward: bool) {
         match self.active {
             4 => {
                 self.importance = if forward {
@@ -163,7 +233,7 @@ impl EventForm {
         }
     }
 
-    pub(super) fn values(&self) -> AppResult<(NewEvent, Option<NewRecurrence>, Vec<String>)> {
+    pub fn values(&self) -> AppResult<(NewEvent, Option<NewRecurrence>, Vec<String>)> {
         let date = parse_date(&self.date)?;
         let start_time = optional_time(&self.start_time)?;
         let end_time = optional_time(&self.end_time)?;
@@ -268,6 +338,29 @@ pub enum Popup {
     Scope(ScopeOperation),
     GotoDate(String),
     Help,
+}
+
+#[derive(Debug)]
+pub struct AppState {
+    pub today: NaiveDate,
+    pub selected_date: NaiveDate,
+    pub active_view: View,
+    pub focused_pane: FocusedPane,
+    pub selected_event: usize,
+    pub selected_note: usize,
+    pub selected_link: usize,
+    pub overlay: Option<Overlay>,
+    pub popup: Option<Popup>,
+    pub input_mode: InputMode,
+    pub agenda: AgendaState,
+    pub upcoming: UpcomingState,
+    pub occurrences: Vec<EventOccurrence>,
+    pub notes: Vec<Note>,
+    pub next: Vec<EventOccurrence>,
+    pub next_total: usize,
+    pub tag_suggestions: Vec<Tag>,
+    pub status_message: Option<String>,
+    pub loaded_range: Option<(NaiveDate, NaiveDate)>,
 }
 
 fn optional_time(value: &str) -> AppResult<Option<NaiveTime>> {

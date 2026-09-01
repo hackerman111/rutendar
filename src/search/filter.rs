@@ -1,68 +1,10 @@
 use chrono::{Duration, NaiveDate};
 
+use super::query::{DateFilter, ItemType, SearchQuery, SearchResult, SortBy, TagMatching};
 use crate::{
     calendar::{month_end, month_start, week_end, week_start},
     model::{EventOccurrence, Importance, Note, normalize_tag},
 };
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SearchQuery {
-    pub text: String,
-    pub tags: Vec<String>,
-}
-
-pub fn parse_query(input: &str) -> SearchQuery {
-    let mut text = Vec::new();
-    let mut tags = Vec::new();
-    for token in input.split_whitespace() {
-        if token.starts_with('#') {
-            let tag = normalize_tag(token);
-            if !tag.is_empty() && !tags.contains(&tag) {
-                tags.push(tag);
-            }
-        } else {
-            text.push(token);
-        }
-    }
-    SearchQuery {
-        text: text.join(" ").to_lowercase(),
-        tags,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ItemType {
-    #[default]
-    All,
-    Events,
-    Notes,
-    Recurring,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DateFilter {
-    #[default]
-    All,
-    Today,
-    ThisWeek,
-    ThisMonth,
-    Upcoming,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TagMatching {
-    #[default]
-    All,
-    Any,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SortBy {
-    #[default]
-    Date,
-    Importance,
-    Title,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
@@ -72,28 +14,6 @@ pub struct SearchFilters {
     pub tags: Vec<String>,
     pub tag_matching: TagMatching,
     pub sort: SortBy,
-}
-
-#[derive(Debug, Clone)]
-pub enum SearchResult {
-    Event(EventOccurrence),
-    Note(Note),
-}
-
-impl SearchResult {
-    pub fn date(&self) -> NaiveDate {
-        match self {
-            Self::Event(item) => item.date,
-            Self::Note(item) => item.date,
-        }
-    }
-
-    pub fn title(&self) -> &str {
-        match self {
-            Self::Event(item) => &item.title,
-            Self::Note(item) => item.title.as_deref().unwrap_or("Без названия"),
-        }
-    }
 }
 
 pub fn date_range(filter: DateFilter, today: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
@@ -203,20 +123,8 @@ pub fn sort_results(results: &mut [SearchResult], sort: SortBy) {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{Event, Tag};
-
     use super::*;
-
-    #[test]
-    fn parser_splits_text_and_deduplicates_tags() {
-        assert_eq!(
-            parse_query("матан #Универ #лекция #универ"),
-            SearchQuery {
-                text: "матан".into(),
-                tags: vec!["универ".into(), "лекция".into()],
-            }
-        );
-    }
+    use crate::model::{Event, Tag};
 
     #[test]
     fn query_tags_are_always_and_while_filter_tags_can_be_any() {
@@ -241,7 +149,10 @@ mod tests {
             .collect();
         let occurrence = EventOccurrence::from_event(&event, tags);
 
-        let query = parse_query("#универ #экзамен");
+        let query = SearchQuery {
+            text: String::new(),
+            tags: vec!["универ".into(), "экзамен".into()],
+        };
         let mut filters = SearchFilters {
             tags: vec!["экзамен".into(), "лекция".into()],
             tag_matching: TagMatching::Any,
@@ -251,7 +162,10 @@ mod tests {
         filters.tags = vec!["экзамен".into(), "лекция".into()];
         assert!(event_matches(
             &occurrence,
-            &parse_query("#универ"),
+            &SearchQuery {
+                text: String::new(),
+                tags: vec!["универ".into()],
+            },
             &filters
         ));
     }
