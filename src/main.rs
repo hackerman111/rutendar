@@ -33,13 +33,21 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if let Some(cmd) = cmd {
         let (_config, paths) = Config::load()?;
-        let mut database = Database::open(&paths.database)?;
         match cmd {
             rutendar::cli::CliCommand::List(period) => {
+                let database = Database::open(&paths.database)?;
                 rutendar::cli::run_list(&database, period)?;
             }
             rutendar::cli::CliCommand::Add(add_args) => {
+                let mut database = Database::open(&paths.database)?;
                 rutendar::cli::run_add(&mut database, &add_args)?;
+            }
+            rutendar::cli::CliCommand::Export(target) => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_export(&database, target.as_deref())?;
+            }
+            rutendar::cli::CliCommand::Import { path, force } => {
+                rutendar::cli::run_import(&paths.database, &path, force)?;
             }
             rutendar::cli::CliCommand::Help => {
                 rutendar::cli::print_help();
