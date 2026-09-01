@@ -8,6 +8,7 @@ pub mod favorite_links;
 pub mod migrations;
 pub mod notes;
 pub mod tags;
+pub mod tasks;
 
 pub use database::Database;
 

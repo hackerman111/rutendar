@@ -4,6 +4,7 @@ pub mod link;
 pub mod note;
 pub mod occurrence;
 pub mod tag;
+pub mod task;
 
 use chrono::{NaiveDate, NaiveTime};
 
@@ -13,6 +14,7 @@ pub use link::{Link, LinkId, NewLink};
 pub use note::{NewNote, Note, NoteId};
 pub use occurrence::EventOccurrence;
 pub use tag::{Tag, normalize_tag};
+pub use task::{NewTask, Task, TaskFilter};
 
 // Re-export Recurrence types for convenience where model is imported
 pub use crate::recurrence::{

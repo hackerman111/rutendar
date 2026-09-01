@@ -97,6 +97,23 @@ CREATE INDEX idx_event_favorite_links_link
     ON event_favorite_links(favorite_link_id);
 "#;
 
+const VERSION_4: &str = r#"
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+    description TEXT,
+    date TEXT,
+    is_done INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0, 1)),
+    importance INTEGER NOT NULL DEFAULT 1 CHECK (importance BETWEEN 0 AND 3),
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date);
+CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
+"#;
+
 pub(super) fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
@@ -111,7 +128,12 @@ pub(super) fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         [],
         |row| row.get(0),
     )?;
-    for (version, sql) in [(1, VERSION_1), (2, VERSION_2), (3, VERSION_3)] {
+    for (version, sql) in [
+        (1, VERSION_1),
+        (2, VERSION_2),
+        (3, VERSION_3),
+        (4, VERSION_4),
+    ] {
         if version <= current {
             continue;
         }

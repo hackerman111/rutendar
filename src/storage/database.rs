@@ -332,7 +332,7 @@ mod tests {
             .prepare("SELECT version FROM schema_migrations ORDER BY version")?
             .query_map([], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        assert_eq!(versions, [1, 2, 3]);
+        assert_eq!(versions, [1, 2, 3, 4]);
         Ok(())
     }
 
