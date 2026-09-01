@@ -133,10 +133,7 @@ impl App {
 
     pub(super) fn go_to_top(&mut self) -> AppResult<()> {
         if let Some(crate::app::Popup::MonthDayPreview { date, .. }) = self.state.popup {
-            self.state.popup = Some(crate::app::Popup::MonthDayPreview {
-                date,
-                selected: 0,
-            });
+            self.state.popup = Some(crate::app::Popup::MonthDayPreview { date, selected: 0 });
             return Ok(());
         }
         if self.state.popup.is_some() {

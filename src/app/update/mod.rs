@@ -604,7 +604,10 @@ mod tests {
 
         // Press 'o' again to reopen
         app.apply(Action::OpenLink).unwrap();
-        assert!(matches!(app.state.popup, Some(Popup::MonthDayPreview { .. })));
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::MonthDayPreview { .. })
+        ));
 
         // Press Open (Enter) -> switches to Day view and opens editor
         app.apply(Action::Open).unwrap();

@@ -260,14 +260,8 @@ pub fn render_month_day_preview(
             let imp_symbol = app.config.importance_symbol(occ.importance);
             let rec_symbol = if occ.is_recurring { "↻ " } else { "  " };
 
-            let cursor_span = Span::styled(
-                cursor,
-                if is_sel {
-                    SELECTED
-                } else {
-                    Style::default()
-                },
-            );
+            let cursor_span =
+                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
             let time_span = Span::styled(time_str, Style::new().fg(Color::Cyan));
             let imp_span = Span::styled(
                 format!("{imp_symbol} "),
@@ -296,14 +290,8 @@ pub fn render_month_day_preview(
             let idx = occurrences.len() + j;
             let is_sel = idx == selected_index;
             let cursor = if is_sel { " › " } else { "   " };
-            let cursor_span = Span::styled(
-                cursor,
-                if is_sel {
-                    SELECTED
-                } else {
-                    Style::default()
-                },
-            );
+            let cursor_span =
+                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
             let icon_span = Span::styled("◆ ", Style::new().fg(Color::Yellow));
             let title_text = note.title.as_deref().unwrap_or(&note.body);
             let title_span = Span::styled(

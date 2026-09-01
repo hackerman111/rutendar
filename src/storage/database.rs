@@ -59,9 +59,9 @@ impl Database {
             .ok_or_else(|| invalid_input("путь экспорта содержит недопустимые символы"))?;
         self.connection.execute("VACUUM INTO ?1", [dest_str])?;
         let file_size = std::fs::metadata(destination)?.len();
-        let event_count: usize = self
-            .connection
-            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
+        let event_count: usize =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         Ok((file_size, event_count))
     }
 

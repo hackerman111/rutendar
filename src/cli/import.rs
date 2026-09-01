@@ -68,7 +68,10 @@ pub fn run_import(
     let _db = Database::open(current_db_path)?;
 
     println!("\x1b[1;32m✓ База данных успешно импортирована!\x1b[0m");
-    println!("  Текущая база: \x1b[1m{}\x1b[0m", current_db_path.display());
+    println!(
+        "  Текущая база: \x1b[1m{}\x1b[0m",
+        current_db_path.display()
+    );
     println!("  Загружено событий: \x1b[33m{}\x1b[0m", event_count);
     Ok(())
 }
