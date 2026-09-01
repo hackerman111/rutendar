@@ -7,7 +7,7 @@ use crate::{
     model::{
         Event, EventId, EventOccurrence, FavoriteLink, FavoriteLinkId, Importance, Link, LinkId,
         NewEvent, NewFavoriteLink, NewRecurrence, Note, NoteId, Recurrence, RecurrenceId, Tag,
-        parse_date, parse_time,
+        Task, parse_date, parse_time,
     },
     search::{SearchFilters, SearchResult},
 };
@@ -539,6 +539,7 @@ pub struct AppState {
     pub upcoming: UpcomingState,
     pub occurrences: Vec<EventOccurrence>,
     pub notes: Vec<Note>,
+    pub tasks: Vec<Task>,
     pub next: Vec<EventOccurrence>,
     pub next_total: usize,
     pub tag_suggestions: Vec<Tag>,

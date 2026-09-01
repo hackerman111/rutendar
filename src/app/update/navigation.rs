@@ -409,8 +409,14 @@ impl App {
             .iter()
             .filter(|e| e.date == date)
             .count();
+        let task_count = self
+            .state
+            .tasks
+            .iter()
+            .filter(|t| t.date == Some(date))
+            .count();
         let note_count = self.state.notes.iter().filter(|n| n.date == date).count();
-        occ_count + note_count
+        occ_count + task_count + note_count
     }
 
     pub(super) fn open_from_month_day_preview(
@@ -424,14 +430,27 @@ impl App {
             .iter()
             .filter(|e| e.date == date)
             .count();
+        let tasks_today: Vec<_> = self
+            .state
+            .tasks
+            .iter()
+            .filter(|t| t.date == Some(date))
+            .collect();
+        let task_count = tasks_today.len();
         let note_count = self.state.notes.iter().filter(|n| n.date == date).count();
-        let total = occ_count + note_count;
+        let total = occ_count + task_count + note_count;
         if total == 0 {
             self.state.selected_date = date;
             self.state.active_view = View::Day;
             self.state.focused_pane = FocusedPane::Events;
             self.state.popup = None;
             self.sync_input_mode();
+            return self.refresh_calendar();
+        }
+
+        if selected >= occ_count && selected < occ_count + task_count {
+            let task_id = tasks_today[selected - occ_count].id;
+            self.database.toggle_task(task_id)?;
             return self.refresh_calendar();
         }
 
@@ -445,7 +464,7 @@ impl App {
             self.state.selected_event = selected;
         } else {
             self.state.focused_pane = FocusedPane::Notes;
-            self.state.selected_note = selected - occ_count;
+            self.state.selected_note = selected - occ_count - task_count;
         }
         self.refresh_calendar()?;
         self.edit_selected()

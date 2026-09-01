@@ -47,6 +47,7 @@ impl App {
                 upcoming: UpcomingState::default(),
                 occurrences: Vec::new(),
                 notes: Vec::new(),
+                tasks: Vec::new(),
                 next: Vec::new(),
                 next_total: 0,
                 tag_suggestions: Vec::new(),
@@ -118,6 +119,7 @@ impl App {
         if self.state.loaded_range != Some(range) {
             self.state.occurrences = self.database.events_between(range.0, range.1)?;
             self.state.notes = self.database.notes_between(range.0, range.1)?;
+            self.state.tasks = self.database.tasks_between(range.0, range.1)?;
             self.state.loaded_range = Some(range);
         }
         self.clamp_selections();

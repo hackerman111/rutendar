@@ -2,6 +2,36 @@ use crate::app::{App, AppResult, DeleteTarget, FocusedPane, Overlay, Popup, Scop
 
 impl App {
     pub(super) fn delete_selected(&mut self) -> AppResult<()> {
+        if let Some(Popup::MonthDayPreview { date, selected }) = self.state.popup {
+            let occ_count = self
+                .state
+                .occurrences
+                .iter()
+                .filter(|e| e.date == date)
+                .count();
+            let tasks: Vec<_> = self
+                .state
+                .tasks
+                .iter()
+                .filter(|t| t.date == Some(date))
+                .collect();
+            if selected >= occ_count && selected < occ_count + tasks.len() {
+                let task_id = tasks[selected - occ_count].id;
+                self.database.delete_task(task_id)?;
+                self.refresh_calendar()?;
+                let total = self.day_preview_items_count(date);
+                let new_sel = if total == 0 {
+                    0
+                } else {
+                    selected.min(total - 1)
+                };
+                self.state.popup = Some(Popup::MonthDayPreview {
+                    date,
+                    selected: new_sel,
+                });
+                return Ok(());
+            }
+        }
         if let Some(event) = self.selected_event_occurrence() {
             if event.is_recurring {
                 self.state.popup = Some(Popup::Scope(ScopeOperation::Delete(event)));

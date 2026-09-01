@@ -244,6 +244,28 @@ impl App {
                 }
             }
             Action::ToggleTagFilter => {
+                if let Some(crate::app::Popup::MonthDayPreview { date, selected }) =
+                    self.state.popup
+                {
+                    let occ_count = self
+                        .state
+                        .occurrences
+                        .iter()
+                        .filter(|e| e.date == date)
+                        .count();
+                    let tasks_today: Vec<_> = self
+                        .state
+                        .tasks
+                        .iter()
+                        .filter(|t| t.date == Some(date))
+                        .collect();
+                    if selected >= occ_count && selected < occ_count + tasks_today.len() {
+                        let task = tasks_today[selected - occ_count];
+                        self.database.toggle_task(task.id)?;
+                        self.refresh_calendar()?;
+                        return Ok(());
+                    }
+                }
                 if self.state.overlay == Some(Overlay::Agenda)
                     && let Some(tag) = self
                         .state
@@ -613,5 +635,67 @@ mod tests {
         app.apply(Action::Open).unwrap();
         assert_eq!(app.state.active_view, View::Day);
         assert!(matches!(app.state.popup, Some(Popup::Editor(_))));
+    }
+
+    #[test]
+    fn month_day_preview_with_tasks_and_space_toggle() {
+        let mut db = Database::in_memory().unwrap();
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        db.create_event(
+            &crate::model::NewEvent {
+                title: "Событие".into(),
+                description: None,
+                start_date: today,
+                start_time: chrono::NaiveTime::from_hms_opt(10, 0, 0),
+                end_time: None,
+                importance: Importance::Normal,
+                directory: None,
+            },
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+
+        let task_id = db
+            .create_task(&crate::model::NewTask {
+                title: "Задание 1".into(),
+                description: None,
+                date: Some(today),
+                importance: Importance::High,
+            })
+            .unwrap();
+
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.state.selected_date = today;
+        app.apply(Action::SwitchView(View::Month)).unwrap();
+
+        // Open preview with 'o'
+        app.apply(Action::OpenLink).unwrap();
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::MonthDayPreview { date, selected: 0 }) if date == today
+        ));
+
+        // Move to task (index 1)
+        app.apply(Action::MoveDown).unwrap();
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::MonthDayPreview { selected: 1, .. })
+        ));
+
+        // Press Space (ToggleTagFilter) to toggle completion
+        app.apply(Action::ToggleTagFilter).unwrap();
+        let task = app.database.get_task(task_id).unwrap().unwrap();
+        assert!(task.is_done);
+
+        // Press Space again to toggle back
+        app.apply(Action::ToggleTagFilter).unwrap();
+        let task = app.database.get_task(task_id).unwrap().unwrap();
+        assert!(!task.is_done);
+
+        // Press Delete to remove task
+        app.apply(Action::Delete).unwrap();
+        assert!(app.database.get_task(task_id).unwrap().is_none());
     }
 }

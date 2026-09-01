@@ -211,8 +211,14 @@ pub fn render_month_day_preview(
         .iter()
         .filter(|e| e.date == date)
         .collect();
+    let tasks: Vec<_> = app
+        .state
+        .tasks
+        .iter()
+        .filter(|t| t.date == Some(date))
+        .collect();
     let notes: Vec<_> = app.state.notes.iter().filter(|n| n.date == date).collect();
-    let total_items = occurrences.len() + notes.len();
+    let total_items = occurrences.len() + tasks.len() + notes.len();
 
     let popup_width = (38.max(cell.width + 8)).min(area.width.saturating_sub(4));
     let content_height = if total_items == 0 {
@@ -286,8 +292,44 @@ pub fn render_month_day_preview(
             ]));
         }
 
+        for (k, task) in tasks.iter().enumerate() {
+            let idx = occurrences.len() + k;
+            let is_sel = idx == selected_index;
+            let cursor = if is_sel { " › " } else { "   " };
+            let cursor_span =
+                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
+            let checkbox = if task.is_done {
+                Span::styled(
+                    "[x] ",
+                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled("[ ] ", Style::new().fg(Color::Yellow))
+            };
+            let imp_symbol = app.config.importance_symbol(task.importance);
+            let imp_span = Span::styled(
+                format!("{imp_symbol} "),
+                month_importance_style(task.importance),
+            );
+            let title_style = if is_sel {
+                SELECTED
+            } else if task.is_done {
+                Style::new().fg(Color::DarkGray)
+            } else {
+                Style::new().fg(Color::White)
+            };
+            let title_span = Span::styled(&task.title, title_style);
+
+            lines.push(Line::from(vec![
+                cursor_span,
+                checkbox,
+                imp_span,
+                title_span,
+            ]));
+        }
+
         for (j, note) in notes.iter().enumerate() {
-            let idx = occurrences.len() + j;
+            let idx = occurrences.len() + tasks.len() + j;
             let is_sel = idx == selected_index;
             let cursor = if is_sel { " › " } else { "   " };
             let cursor_span =
