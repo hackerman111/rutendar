@@ -84,9 +84,21 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
     } else {
         ""
     };
+    let min_card_width = 72usize;
 
-    let card_width = 72usize;
-    let inner_width = card_width.saturating_sub(4); // 1 left bar + 1 space + inner + 1 space + 1 right bar
+    let longest_link_width = event
+        .favorite_links
+        .iter()
+        .map(|link| {
+            let line = format!("  🔗 {} › {}", link.label, link.url);
+            line.width()
+        })
+        .max()
+        .unwrap_or(0);
+
+    let card_width = min_card_width.max(longest_link_width + 4);
+    let inner_width = card_width - 4;
+
     let divider = format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2));
 
     // Top border: ╭── <badge> ──────...──╮
