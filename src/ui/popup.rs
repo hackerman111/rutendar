@@ -124,6 +124,38 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
         Popup::MonthDayPreview { date, selected } => {
             super::month::render_month_day_preview(frame, area, app, *date, *selected);
         }
+        Popup::CreateTask(title) => {
+            let popup = centered_fixed(area, 54, 5);
+            frame.render_widget(Clear, popup);
+            let lines = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  › [ ", Style::new().fg(Color::Cyan)),
+                    Span::styled(
+                        if title.is_empty() {
+                            "Введите название задания..."
+                        } else {
+                            title.as_str()
+                        },
+                        if title.is_empty() {
+                            Style::new().fg(Color::DarkGray)
+                        } else {
+                            Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+                        },
+                    ),
+                    Span::styled(" █ ]", Style::new().fg(Color::Cyan)),
+                ]),
+            ];
+            frame.render_widget(
+                Paragraph::new(lines).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(Span::styled(" НОВОЕ ЗАДАНИЕ (To-Do) ", SELECTED))
+                        .border_style(FOCUSED),
+                ),
+                popup,
+            );
+        }
     }
 }
 
@@ -304,10 +336,12 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ("w  /  D  /  m  /  Y", "режимы: Week / Day / Month / Year"),
         ("── ДЕЙСТВИЯ ─────────────────────────────", ""),
         ("a", "создать событие / заметку"),
+        ("T", "создать задание (To-Do) на этот день"),
+        ("Space", "отметить задание ([ ] ↔ [x])"),
         ("e  /  r", "изменить выбранный элемент"),
         ("d  /  x", "удалить выбранный элемент"),
         ("p", "изменить важность (None / Low / Normal / High)"),
-        ("o  /  y", "открыть ссылку в браузере / скопировать URL"),
+        ("o  /  y", "превью дня (в месяце) / открыть ссылку"),
         ("c", "открыть shell в директории выбранного события"),
         ("Enter  /  Esc", "открыть / закрыть или назад"),
         ("── ПАНЕЛИ И ПОИСК ───────────────────────", ""),

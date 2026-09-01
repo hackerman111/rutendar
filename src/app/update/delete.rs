@@ -18,6 +18,7 @@ impl App {
             if selected >= occ_count && selected < occ_count + tasks.len() {
                 let task_id = tasks[selected - occ_count].id;
                 self.database.delete_task(task_id)?;
+                self.state.loaded_range = None;
                 self.refresh_calendar()?;
                 let total = self.day_preview_items_count(date);
                 let new_sel = if total == 0 {
@@ -29,6 +30,31 @@ impl App {
                     date,
                     selected: new_sel,
                 });
+                return Ok(());
+            }
+        }
+        if self.state.popup.is_none()
+            && self.state.overlay.is_none()
+            && (self.state.active_view == crate::app::View::Week
+                || (self.state.active_view == crate::app::View::Day
+                    && self.state.focused_pane == FocusedPane::Events))
+        {
+            let occ_count = self.events_on_selected_date().count();
+            let tasks: Vec<_> = self
+                .state
+                .tasks
+                .iter()
+                .filter(|t| t.date == Some(self.state.selected_date))
+                .collect();
+            if self.state.selected_event >= occ_count
+                && self.state.selected_event < occ_count + tasks.len()
+            {
+                let task_id = tasks[self.state.selected_event - occ_count].id;
+                self.database.delete_task(task_id)?;
+                self.state.loaded_range = None;
+                self.refresh_calendar()?;
+                let total = self.events_and_tasks_on_selected_date_count();
+                self.state.selected_event = self.state.selected_event.min(total.saturating_sub(1));
                 return Ok(());
             }
         }

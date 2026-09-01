@@ -26,6 +26,7 @@ pub enum Action {
     PreviousView,
     GoToToday,
     StartGotoDate,
+    StartCreateTask,
     Help,
     OpenLink,
     CopyLink,

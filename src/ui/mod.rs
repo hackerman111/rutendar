@@ -254,6 +254,13 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App) {
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
+        InputMode::CreateTask => (
+            " TASK ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
     };
 
     let mut spans = vec![

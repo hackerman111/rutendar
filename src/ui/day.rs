@@ -29,36 +29,85 @@ pub fn render_day(frame: &mut Frame, area: Rect, app: &App) {
 pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
     let focused = app.state.focused_pane == FocusedPane::Events;
     let events: Vec<_> = app.events_on_selected_date().collect();
-    let total_count = events.len();
+    let tasks: Vec<_> = app
+        .state
+        .tasks
+        .iter()
+        .filter(|t| t.date == Some(app.state.selected_date))
+        .collect();
     let capacity = (area.height.saturating_sub(2) / 2).max(1) as usize;
     let start = app
         .state
         .selected_event
         .saturating_sub(capacity.saturating_sub(1));
 
-    let items = events
-        .iter()
-        .copied()
-        .enumerate()
+    let mut all_items = Vec::new();
+    for (index, event) in events.iter().enumerate() {
+        let is_selected = focused && index == app.state.selected_event;
+        let mut lines = vec![Line::from(styled_event_spans(app, event, is_selected))];
+        if !event.tags.is_empty() {
+            lines.push(styled_tags_line(event, is_selected));
+        }
+        for link in &event.favorite_links {
+            lines.push(styled_favorite_link_line(link, is_selected));
+        }
+        all_items.push(ListItem::new(lines));
+    }
+    for (k, task) in tasks.iter().enumerate() {
+        let idx = events.len() + k;
+        let is_selected = focused && idx == app.state.selected_event;
+        let checkbox = if task.is_done {
+            Span::styled(
+                "[x] ",
+                Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            Span::styled("[ ] ", Style::new().fg(Color::Yellow))
+        };
+        let imp_symbol = app.config.importance_symbol(task.importance);
+        let imp_span = Span::styled(
+            format!("{imp_symbol} "),
+            super::month::month_importance_style(task.importance),
+        );
+        let title_style = if is_selected {
+            SELECTED
+        } else if task.is_done {
+            Style::new().fg(Color::DarkGray)
+        } else {
+            Style::new().fg(Color::White)
+        };
+        let title_span = Span::styled(&task.title, title_style);
+        let mut spans = vec![checkbox, imp_span, title_span];
+        if let Some(desc) = &task.description {
+            spans.push(Span::styled(
+                format!(" ({desc})"),
+                Style::new().fg(Color::DarkGray),
+            ));
+        }
+        all_items.push(ListItem::new(vec![Line::from(spans)]));
+    }
+
+    let items = all_items
+        .into_iter()
         .skip(start)
         .take(capacity)
-        .map(|(index, event)| {
-            let is_selected = focused && index == app.state.selected_event;
-            let mut lines = vec![Line::from(styled_event_spans(app, event, is_selected))];
-            if !event.tags.is_empty() {
-                lines.push(styled_tags_line(event, is_selected));
-            }
-            for link in &event.favorite_links {
-                lines.push(styled_favorite_link_line(link, is_selected));
-            }
-            ListItem::new(lines)
-        })
         .collect::<Vec<_>>();
 
-    let title = if focused {
-        format!(" СОБЫТИЯ ({total_count}) ")
+    let title = if tasks.is_empty() {
+        let total_count = events.len();
+        if focused {
+            format!(" СОБЫТИЯ ({total_count}) ")
+        } else {
+            format!(" [ СОБЫТИЯ ] ({total_count}) ")
+        }
     } else {
-        format!(" [ СОБЫТИЯ ] ({total_count}) ")
+        let ev_count = events.len();
+        let task_count = tasks.len();
+        if focused {
+            format!(" СОБЫТИЯ ({ev_count}) │ ЗАДАНИЯ ({task_count}) ")
+        } else {
+            format!(" [ СОБЫТИЯ ({ev_count}) │ ЗАДАНИЯ ({task_count}) ] ")
+        }
     };
 
     let title_style = if focused {

@@ -163,6 +163,7 @@ impl App {
             },
             Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => form.push(character),
             Some(Popup::GotoDate(value)) => value.push(character),
+            Some(Popup::CreateTask(value)) => value.push(character),
             _ if self.state.agenda.searching => {
                 self.state.agenda.query.push(character);
                 self.refresh_agenda()?;
@@ -198,6 +199,7 @@ impl App {
             },
             Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => form.backspace(),
             Some(Popup::GotoDate(value)) => _ = value.pop(),
+            Some(Popup::CreateTask(value)) => _ = value.pop(),
             _ if self.state.agenda.searching => {
                 _ = self.state.agenda.query.pop();
                 self.refresh_agenda()?;
@@ -313,6 +315,21 @@ impl App {
             }
             Some(Popup::GotoDate(value)) => {
                 self.state.selected_date = parse_date(&value)?;
+                self.state.popup = None;
+                self.state.loaded_range = None;
+                self.refresh_calendar()?;
+            }
+            Some(Popup::CreateTask(value)) => {
+                let clean = value.trim().to_string();
+                if !clean.is_empty() {
+                    self.database.create_task(&crate::model::NewTask {
+                        title: clean,
+                        description: None,
+                        date: Some(self.state.selected_date),
+                        importance: crate::model::Importance::Normal,
+                    })?;
+                    self.state.status_message = Some("Задание создано".into());
+                }
                 self.state.popup = None;
                 self.state.loaded_range = None;
                 self.refresh_calendar()?;

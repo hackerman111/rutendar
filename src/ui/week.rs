@@ -33,11 +33,18 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             .iter()
             .filter(|event| event.date == date)
             .collect();
+        let tasks: Vec<_> = app
+            .state
+            .tasks
+            .iter()
+            .filter(|task| task.date == Some(date))
+            .collect();
         let selected = date == app.state.selected_date;
         let is_today = date == app.state.today;
         let has_high_importance = events
             .iter()
-            .any(|event| event.importance == Importance::High);
+            .any(|event| event.importance == Importance::High)
+            || tasks.iter().any(|task| task.importance == Importance::High);
 
         let title_spans = if is_today {
             vec![
@@ -69,6 +76,46 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             && events.len().saturating_mul(2) <= column.height.saturating_sub(2) as usize;
         let lines_per_event = if show_tags { 2 } else { 1 };
         let capacity = (column.height.saturating_sub(2) as usize / lines_per_event).max(1);
+
+        let mut item_lines = Vec::new();
+        for (index, event) in events.iter().enumerate() {
+            let is_event_selected = selected && index == app.state.selected_event;
+            item_lines.push(Line::from(styled_event_spans(
+                app,
+                event,
+                is_event_selected,
+            )));
+            if show_tags && !event.tags.is_empty() {
+                item_lines.push(styled_tags_line(event, is_event_selected));
+            }
+        }
+        for (k, task) in tasks.iter().enumerate() {
+            let item_index = events.len() + k;
+            let is_task_selected = selected && item_index == app.state.selected_event;
+            let checkbox = if task.is_done {
+                Span::styled(
+                    "[x] ",
+                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled("[ ] ", Style::new().fg(Color::Yellow))
+            };
+            let imp_symbol = app.config.importance_symbol(task.importance);
+            let imp_span = Span::styled(
+                format!("{imp_symbol} "),
+                super::month::month_importance_style(task.importance),
+            );
+            let title_style = if is_task_selected {
+                SELECTED
+            } else if task.is_done {
+                Style::new().fg(Color::DarkGray)
+            } else {
+                Style::new().fg(Color::White)
+            };
+            let title_span = Span::styled(&task.title, title_style);
+            item_lines.push(Line::from(vec![checkbox, imp_span, title_span]));
+        }
+
         let start_idx = if selected {
             app.state
                 .selected_event
@@ -77,23 +124,10 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             0
         };
 
-        let lines = events
-            .iter()
-            .enumerate()
+        let lines = item_lines
+            .into_iter()
             .skip(start_idx)
             .take(capacity)
-            .flat_map(|(index, event)| {
-                let is_event_selected = selected && index == app.state.selected_event;
-                let mut result = vec![Line::from(styled_event_spans(
-                    app,
-                    event,
-                    is_event_selected,
-                ))];
-                if show_tags && !event.tags.is_empty() {
-                    result.push(styled_tags_line(event, is_event_selected));
-                }
-                result
-            })
             .collect::<Vec<_>>();
 
         let border_style = calendar_border_style(selected, is_today, has_high_importance);

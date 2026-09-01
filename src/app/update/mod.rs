@@ -95,6 +95,10 @@ impl App {
                 ));
                 self.state.input_mode = InputMode::GotoDate;
             }
+            Action::StartCreateTask => {
+                self.state.popup = Some(Popup::CreateTask(String::new()));
+                self.state.input_mode = InputMode::CreateTask;
+            }
             Action::Help => {
                 self.state.popup = if matches!(self.state.popup, Some(Popup::Help)) {
                     None
@@ -262,6 +266,30 @@ impl App {
                     if selected >= occ_count && selected < occ_count + tasks_today.len() {
                         let task = tasks_today[selected - occ_count];
                         self.database.toggle_task(task.id)?;
+                        self.state.loaded_range = None;
+                        self.refresh_calendar()?;
+                        return Ok(());
+                    }
+                }
+                if self.state.popup.is_none()
+                    && self.state.overlay.is_none()
+                    && (self.state.active_view == View::Week
+                        || (self.state.active_view == View::Day
+                            && self.state.focused_pane == FocusedPane::Events))
+                {
+                    let occ_count = self.events_on_selected_date().count();
+                    let tasks_today: Vec<_> = self
+                        .state
+                        .tasks
+                        .iter()
+                        .filter(|t| t.date == Some(self.state.selected_date))
+                        .collect();
+                    if self.state.selected_event >= occ_count
+                        && self.state.selected_event < occ_count + tasks_today.len()
+                    {
+                        let task = tasks_today[self.state.selected_event - occ_count];
+                        self.database.toggle_task(task.id)?;
+                        self.state.loaded_range = None;
                         self.refresh_calendar()?;
                         return Ok(());
                     }
@@ -303,6 +331,7 @@ impl App {
             Some(Popup::Confirm { .. }) => InputMode::Confirm,
             Some(Popup::Scope(_)) => InputMode::Scope,
             Some(Popup::GotoDate(_)) => InputMode::GotoDate,
+            Some(Popup::CreateTask(_)) => InputMode::CreateTask,
             Some(Popup::LinkBank) => {
                 if self
                     .state
@@ -697,5 +726,57 @@ mod tests {
         // Press Delete to remove task
         app.apply(Action::Delete).unwrap();
         assert!(app.database.get_task(task_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn tasks_in_week_and_day_view_and_tui_creation() {
+        let db = Database::in_memory().unwrap();
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.state.selected_date = today;
+        app.state.today = today;
+
+        // 1. Create a task directly via TUI popup (T -> input -> Enter)
+        app.apply(Action::StartCreateTask).unwrap();
+        assert_eq!(app.state.input_mode, InputMode::CreateTask);
+        for c in "Купить молоко".chars() {
+            app.apply(Action::Input(c)).unwrap();
+        }
+        app.apply(Action::Submit).unwrap();
+        assert_eq!(app.state.input_mode, InputMode::Normal);
+        assert_eq!(app.state.tasks.len(), 1);
+        let task_id = app.state.tasks[0].id;
+        assert_eq!(app.state.tasks[0].title, "Купить молоко");
+        assert!(!app.state.tasks[0].is_done);
+
+        // 2. In Week view (default view):
+        assert_eq!(app.state.active_view, View::Week);
+        assert_eq!(app.events_and_tasks_on_selected_date_count(), 1);
+        assert_eq!(app.state.selected_event, 0);
+
+        // Press Space to toggle task in Week view
+        app.apply(Action::ToggleTagFilter).unwrap();
+        let task = app.database.get_task(task_id).unwrap().unwrap();
+        assert!(task.is_done);
+
+        // Press Enter to toggle task back
+        app.apply(Action::Open).unwrap();
+        let task = app.database.get_task(task_id).unwrap().unwrap();
+        assert!(!task.is_done);
+
+        // 3. Switch to Day view
+        app.apply(Action::SwitchView(View::Day)).unwrap();
+        assert_eq!(app.state.active_view, View::Day);
+        assert_eq!(app.state.focused_pane, FocusedPane::Events);
+
+        // Press Space to toggle task in Day view
+        app.apply(Action::ToggleTagFilter).unwrap();
+        let task = app.database.get_task(task_id).unwrap().unwrap();
+        assert!(task.is_done);
+
+        // Delete task in Day view
+        app.apply(Action::Delete).unwrap();
+        assert!(app.database.get_task(task_id).unwrap().is_none());
+        assert_eq!(app.state.tasks.len(), 0);
     }
 }

@@ -358,7 +358,7 @@ pub fn render_month_day_preview(
     frame.render_widget(Paragraph::new(lines).block(block), popup_rect);
 }
 
-fn month_importance_style(importance: Importance) -> Style {
+pub(crate) fn month_importance_style(importance: Importance) -> Style {
     match importance {
         Importance::High => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
         Importance::Normal => Style::new().fg(Color::Rgb(255, 165, 0)),

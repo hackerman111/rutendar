@@ -203,7 +203,7 @@ impl App {
     }
 
     pub(crate) fn clamp_selections(&mut self) {
-        let event_count = self.events_on_selected_date().count();
+        let event_count = self.events_and_tasks_on_selected_date_count();
         let note_count = self.notes_on_selected_date().count();
         self.state.selected_event = self.state.selected_event.min(event_count.saturating_sub(1));
         self.state.selected_note = self.state.selected_note.min(note_count.saturating_sub(1));

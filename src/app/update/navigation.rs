@@ -8,6 +8,17 @@ use crate::{
 };
 
 impl App {
+    pub(crate) fn events_and_tasks_on_selected_date_count(&self) -> usize {
+        let occ_count = self.events_on_selected_date().count();
+        let task_count = self
+            .state
+            .tasks
+            .iter()
+            .filter(|t| t.date == Some(self.state.selected_date))
+            .count();
+        occ_count + task_count
+    }
+
     pub(super) fn move_horizontal(&mut self, delta: i32) -> AppResult<()> {
         if self.state.popup.is_some() || self.state.overlay.is_some() {
             return Ok(());
@@ -87,7 +98,7 @@ impl App {
                 View::Week => {
                     self.state.selected_event = move_index(
                         self.state.selected_event,
-                        self.events_on_selected_date().count(),
+                        self.events_and_tasks_on_selected_date_count(),
                         delta,
                     );
                 }
@@ -95,7 +106,7 @@ impl App {
                     FocusedPane::Events => {
                         self.state.selected_event = move_index(
                             self.state.selected_event,
-                            self.events_on_selected_date().count(),
+                            self.events_and_tasks_on_selected_date_count(),
                             delta,
                         );
                     }
@@ -201,12 +212,12 @@ impl App {
             }
             None => match self.state.active_view {
                 View::Week => {
-                    let count = self.events_on_selected_date().count();
+                    let count = self.events_and_tasks_on_selected_date_count();
                     self.state.selected_event = count.saturating_sub(1);
                 }
                 View::Day => match self.state.focused_pane {
                     FocusedPane::Events => {
-                        let count = self.events_on_selected_date().count();
+                        let count = self.events_and_tasks_on_selected_date_count();
                         self.state.selected_event = count.saturating_sub(1);
                     }
                     FocusedPane::Notes => {
@@ -309,12 +320,48 @@ impl App {
                 }
             }
             None if self.state.active_view != View::Day => {
+                if self.state.active_view == View::Week {
+                    let occ_count = self.events_on_selected_date().count();
+                    let tasks: Vec<_> = self
+                        .state
+                        .tasks
+                        .iter()
+                        .filter(|t| t.date == Some(self.state.selected_date))
+                        .collect();
+                    if self.state.selected_event >= occ_count
+                        && self.state.selected_event < occ_count + tasks.len()
+                    {
+                        let task_id = tasks[self.state.selected_event - occ_count].id;
+                        self.database.toggle_task(task_id)?;
+                        self.state.loaded_range = None;
+                        return self.refresh_calendar();
+                    }
+                }
                 self.state.active_view = View::Day;
                 self.state.focused_pane = FocusedPane::Events;
                 self.state.loaded_range = None;
                 self.refresh_calendar()?;
             }
-            None => self.edit_selected()?,
+            None => {
+                if self.state.focused_pane == FocusedPane::Events {
+                    let occ_count = self.events_on_selected_date().count();
+                    let tasks: Vec<_> = self
+                        .state
+                        .tasks
+                        .iter()
+                        .filter(|t| t.date == Some(self.state.selected_date))
+                        .collect();
+                    if self.state.selected_event >= occ_count
+                        && self.state.selected_event < occ_count + tasks.len()
+                    {
+                        let task_id = tasks[self.state.selected_event - occ_count].id;
+                        self.database.toggle_task(task_id)?;
+                        self.state.loaded_range = None;
+                        return self.refresh_calendar();
+                    }
+                }
+                self.edit_selected()?;
+            }
         }
         Ok(())
     }
@@ -451,6 +498,7 @@ impl App {
         if selected >= occ_count && selected < occ_count + task_count {
             let task_id = tasks_today[selected - occ_count].id;
             self.database.toggle_task(task_id)?;
+            self.state.loaded_range = None;
             return self.refresh_calendar();
         }
 

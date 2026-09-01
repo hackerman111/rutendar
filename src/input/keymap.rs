@@ -33,6 +33,7 @@ impl Keymap {
             InputMode::LinkBank => self.link_bank(key),
             InputMode::LinkSearch => self.search(key),
             InputMode::GotoDate => self.goto_date(key),
+            InputMode::CreateTask => self.create_task(key),
             InputMode::Confirm => match key.code {
                 KeyCode::Enter | KeyCode::Char('y' | 'Y' | 'д' | 'Д' | 'x' | 'X') => {
                     Action::Confirm(true)
@@ -113,6 +114,16 @@ impl Keymap {
         }
     }
 
+    fn create_task(&self, key: KeyEvent) -> Action {
+        match key.code {
+            KeyCode::Esc => Action::Back,
+            KeyCode::Enter => Action::Submit,
+            KeyCode::Backspace => Action::Backspace,
+            KeyCode::Char(character) => Action::Input(character),
+            _ => Action::Noop,
+        }
+    }
+
     fn normal(&mut self, key: KeyEvent) -> Action {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             return match key.code {
@@ -156,6 +167,7 @@ impl Keymap {
             KeyCode::Char('X') => Action::DeleteTag,
             KeyCode::Char('/') => Action::OpenAgenda,
             KeyCode::Char('t') => Action::OpenUpcoming,
+            KeyCode::Char('T') => Action::StartCreateTask,
             KeyCode::Char('p') => Action::ChangeImportance,
             KeyCode::Char('w') => Action::SwitchView(View::Week),
             KeyCode::Char('D') => Action::SwitchView(View::Day),

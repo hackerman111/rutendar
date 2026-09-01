@@ -74,6 +74,7 @@ pub enum InputMode {
     Confirm,
     Scope,
     GotoDate,
+    CreateTask,
 }
 
 #[derive(Debug, Default)]
@@ -511,6 +512,7 @@ pub enum Popup {
         date: NaiveDate,
         selected: usize,
     },
+    CreateTask(String),
 }
 
 #[derive(Debug)]
