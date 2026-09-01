@@ -151,7 +151,7 @@ impl Keymap {
             KeyCode::Char('a') => Action::Create,
             KeyCode::Char('n') => Action::NextDay,
             KeyCode::Char('N') => Action::PreviousDay,
-            KeyCode::Char('e') => Action::Edit,
+            KeyCode::Char('e' | 'r') => Action::Edit,
             KeyCode::Char('d') | KeyCode::Char('x') => Action::Delete,
             KeyCode::Char('X') => Action::DeleteTag,
             KeyCode::Char('/') => Action::OpenAgenda,
@@ -166,7 +166,7 @@ impl Keymap {
             KeyCode::Tab => Action::NextView,
             KeyCode::BackTab => Action::PreviousView,
             KeyCode::Char('f') => Action::CycleDateFilter,
-            KeyCode::Char('r') => Action::CycleItemType,
+            KeyCode::Char('R') => Action::CycleItemType,
             KeyCode::Char('i') => Action::CycleImportanceFilter,
             KeyCode::Char('s') => Action::CycleSort,
             KeyCode::Char('A') => Action::ToggleTagMatching,
@@ -289,6 +289,18 @@ mod tests {
         assert!(matches!(
             keymap.map(key('a'), InputMode::LinkBank),
             Action::AddFavoriteLink
+        ));
+        assert!(matches!(
+            keymap.map(key('e'), InputMode::Normal),
+            Action::Edit
+        ));
+        assert!(matches!(
+            keymap.map(key('r'), InputMode::Normal),
+            Action::Edit
+        ));
+        assert!(matches!(
+            keymap.map(key('R'), InputMode::Normal),
+            Action::CycleItemType
         ));
     }
 }

@@ -85,7 +85,7 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
             format!(" {}  ", filters.date.label()),
             Style::new().fg(Color::Cyan),
         ),
-        Span::styled("[r]", KEY_BADGE),
+        Span::styled("[R]", KEY_BADGE),
         Span::styled(" TYPE:", KEY_LABEL),
         Span::styled(
             format!(" {:?}  ", filters.item_type),
