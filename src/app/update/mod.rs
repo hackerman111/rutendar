@@ -104,6 +104,10 @@ impl App {
                 self.sync_input_mode();
             }
             Action::OpenLink => {
+                if self.state.active_view == View::Month && self.state.overlay.is_none() {
+                    self.toggle_month_day_preview()?;
+                    return Ok(());
+                }
                 let url = self
                     .selected_url()
                     .ok_or_else(|| app_error("no link selected"))?;
@@ -290,9 +294,23 @@ impl App {
                 }
             }
             Some(Popup::Help) => InputMode::Normal,
+            Some(Popup::MonthDayPreview { .. }) => InputMode::Normal,
             None if self.state.agenda.searching => InputMode::Search,
             None => InputMode::Normal,
         };
+    }
+
+    pub(super) fn toggle_month_day_preview(&mut self) -> AppResult<()> {
+        if matches!(self.state.popup, Some(Popup::MonthDayPreview { .. })) {
+            self.state.popup = None;
+        } else {
+            self.state.popup = Some(Popup::MonthDayPreview {
+                date: self.state.selected_date,
+                selected: 0,
+            });
+        }
+        self.sync_input_mode();
+        Ok(())
     }
 
     pub(crate) fn set_error(&mut self, error: impl std::fmt::Display) {
@@ -525,5 +543,72 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn month_day_preview_toggle_and_navigation() {
+        let mut db = Database::in_memory().unwrap();
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        db.create_event(
+            &crate::model::NewEvent {
+                title: "Событие 1".into(),
+                description: None,
+                start_date: today,
+                start_time: chrono::NaiveTime::from_hms_opt(10, 0, 0),
+                end_time: None,
+                importance: Importance::Normal,
+                directory: None,
+            },
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+        db.create_event(
+            &crate::model::NewEvent {
+                title: "Событие 2".into(),
+                description: None,
+                start_date: today,
+                start_time: chrono::NaiveTime::from_hms_opt(15, 0, 0),
+                end_time: None,
+                importance: Importance::High,
+                directory: None,
+            },
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.state.selected_date = today;
+        app.apply(Action::SwitchView(View::Month)).unwrap();
+
+        // Press 'o' (Action::OpenLink in Month view) to open preview
+        app.apply(Action::OpenLink).unwrap();
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::MonthDayPreview { date, selected: 0 }) if date == today
+        ));
+
+        // Press MoveDown (j) -> selected becomes 1
+        app.apply(Action::MoveDown).unwrap();
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::MonthDayPreview { selected: 1, .. })
+        ));
+
+        // Press Back (Esc) -> popup closes
+        app.apply(Action::Back).unwrap();
+        assert!(app.state.popup.is_none());
+
+        // Press 'o' again to reopen
+        app.apply(Action::OpenLink).unwrap();
+        assert!(matches!(app.state.popup, Some(Popup::MonthDayPreview { .. })));
+
+        // Press Open (Enter) -> switches to Day view and opens editor
+        app.apply(Action::Open).unwrap();
+        assert_eq!(app.state.active_view, View::Day);
+        assert!(matches!(app.state.popup, Some(Popup::Editor(_))));
     }
 }

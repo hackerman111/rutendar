@@ -47,6 +47,15 @@ impl App {
             self.move_link_bank(delta);
             return Ok(());
         }
+        if let Some(crate::app::Popup::MonthDayPreview { date, selected }) = self.state.popup {
+            let total = self.day_preview_items_count(date);
+            let new_selected = move_index(selected, total, delta);
+            self.state.popup = Some(crate::app::Popup::MonthDayPreview {
+                date,
+                selected: new_selected,
+            });
+            return Ok(());
+        }
         if self.state.popup.is_some() {
             return Ok(());
         }
@@ -123,6 +132,13 @@ impl App {
     }
 
     pub(super) fn go_to_top(&mut self) -> AppResult<()> {
+        if let Some(crate::app::Popup::MonthDayPreview { date, .. }) = self.state.popup {
+            self.state.popup = Some(crate::app::Popup::MonthDayPreview {
+                date,
+                selected: 0,
+            });
+            return Ok(());
+        }
         if self.state.popup.is_some() {
             return Ok(());
         }
@@ -167,6 +183,14 @@ impl App {
     }
 
     pub(super) fn go_to_bottom(&mut self) -> AppResult<()> {
+        if let Some(crate::app::Popup::MonthDayPreview { date, .. }) = self.state.popup {
+            let total = self.day_preview_items_count(date);
+            self.state.popup = Some(crate::app::Popup::MonthDayPreview {
+                date,
+                selected: total.saturating_sub(1),
+            });
+            return Ok(());
+        }
         if self.state.popup.is_some() {
             return Ok(());
         }
@@ -218,6 +242,9 @@ impl App {
     }
 
     pub(super) fn open_selected(&mut self) -> AppResult<()> {
+        if let Some(crate::app::Popup::MonthDayPreview { date, selected }) = self.state.popup {
+            return self.open_from_month_day_preview(date, selected);
+        }
         if self.state.popup.is_some() {
             return self.submit();
         }
@@ -376,5 +403,54 @@ impl App {
                 FocusedPane::Links => FocusedPane::Notes,
             };
         }
+    }
+
+    pub(super) fn day_preview_items_count(&self, date: chrono::NaiveDate) -> usize {
+        let occ_count = self
+            .state
+            .occurrences
+            .iter()
+            .filter(|e| e.date == date)
+            .count();
+        let note_count = self.state.notes.iter().filter(|n| n.date == date).count();
+        occ_count + note_count
+    }
+
+    pub(super) fn open_from_month_day_preview(
+        &mut self,
+        date: chrono::NaiveDate,
+        selected: usize,
+    ) -> AppResult<()> {
+        let occ_count = self
+            .state
+            .occurrences
+            .iter()
+            .filter(|e| e.date == date)
+            .count();
+        let note_count = self.state.notes.iter().filter(|n| n.date == date).count();
+        let total = occ_count + note_count;
+        if total == 0 {
+            self.state.selected_date = date;
+            self.state.active_view = View::Day;
+            self.state.focused_pane = FocusedPane::Events;
+            self.state.popup = None;
+            self.sync_input_mode();
+            return self.refresh_calendar();
+        }
+
+        self.state.selected_date = date;
+        self.state.active_view = View::Day;
+        self.state.popup = None;
+        self.sync_input_mode();
+
+        if selected < occ_count {
+            self.state.focused_pane = FocusedPane::Events;
+            self.state.selected_event = selected;
+        } else {
+            self.state.focused_pane = FocusedPane::Notes;
+            self.state.selected_note = selected - occ_count;
+        }
+        self.refresh_calendar()?;
+        self.edit_selected()
     }
 }

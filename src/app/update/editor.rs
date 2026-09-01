@@ -56,6 +56,9 @@ impl App {
     }
 
     pub(super) fn edit_selected(&mut self) -> AppResult<()> {
+        if let Some(Popup::MonthDayPreview { date, selected }) = self.state.popup {
+            return self.open_from_month_day_preview(date, selected);
+        }
         if let Some(event) = self.selected_event_occurrence() {
             if event.is_recurring {
                 self.state.popup = Some(Popup::Scope(ScopeOperation::Edit(event)));

@@ -507,6 +507,10 @@ pub enum Popup {
     GotoDate(String),
     LinkBank,
     Help,
+    MonthDayPreview {
+        date: NaiveDate,
+        selected: usize,
+    },
 }
 
 #[derive(Debug)]

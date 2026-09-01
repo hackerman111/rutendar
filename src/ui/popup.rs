@@ -121,6 +121,9 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
         }
         Popup::LinkBank => render_link_bank(frame, area, app),
         Popup::Help => render_help(frame, area),
+        Popup::MonthDayPreview { date, selected } => {
+            super::month::render_month_day_preview(frame, area, app, *date, *selected);
+        }
     }
 }
 

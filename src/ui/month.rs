@@ -4,10 +4,10 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use super::widgets::{SELECTED, TODAY, TODAY_BADGE, calendar_border_style};
+use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, calendar_border_style};
 use crate::{
     app::App,
     calendar::{month_start, week_start},
@@ -157,6 +157,186 @@ fn month_event_marker(
     Span::styled(marker, style)
 }
 
+pub fn month_day_cell(area: Rect, selected_date: chrono::NaiveDate) -> Option<Rect> {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+            Constraint::Ratio(1, 6),
+        ])
+        .split(area);
+    let first = week_start(month_start(selected_date));
+    for week in 0..6 {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Ratio(1, 7); 7])
+            .split(rows[week + 1]);
+        for day in 0..7 {
+            let date = first + Duration::days((week * 7 + day) as i64);
+            if date == selected_date {
+                return Some(columns[day]);
+            }
+        }
+    }
+    None
+}
+
+pub fn render_month_day_preview(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    date: chrono::NaiveDate,
+    selected_index: usize,
+) {
+    let month_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(area)[1];
+
+    let cell = month_day_cell(month_area, date).unwrap_or(month_area);
+
+    let occurrences: Vec<_> = app
+        .state
+        .occurrences
+        .iter()
+        .filter(|e| e.date == date)
+        .collect();
+    let notes: Vec<_> = app.state.notes.iter().filter(|n| n.date == date).collect();
+    let total_items = occurrences.len() + notes.len();
+
+    let popup_width = (38.max(cell.width + 8)).min(area.width.saturating_sub(4));
+    let content_height = if total_items == 0 {
+        1
+    } else {
+        total_items as u16
+    };
+    let popup_height = (content_height + 2).min(12);
+
+    let mut x = cell.x;
+    if x + popup_width > area.right() {
+        x = area.right().saturating_sub(popup_width);
+    }
+
+    let mut y = cell.y + cell.height;
+    if y + popup_height > area.bottom() {
+        y = cell.y.saturating_sub(popup_height);
+    }
+
+    let popup_rect = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_rect);
+
+    let mut lines = Vec::new();
+    if total_items == 0 {
+        lines.push(Line::from(vec![Span::styled(
+            "   (нет событий)",
+            Style::new().fg(Color::DarkGray),
+        )]));
+    } else {
+        use chrono::Timelike;
+        for (i, occ) in occurrences.iter().enumerate() {
+            let is_sel = i == selected_index;
+            let cursor = if is_sel { " › " } else { "   " };
+            let time_str = if let Some(t) = occ.start_time {
+                format!("{:02}:{:02} ", t.hour(), t.minute())
+            } else {
+                "--:-- ".to_string()
+            };
+            let imp_symbol = app.config.importance_symbol(occ.importance);
+            let rec_symbol = if occ.is_recurring { "↻ " } else { "  " };
+
+            let cursor_span = Span::styled(
+                cursor,
+                if is_sel {
+                    SELECTED
+                } else {
+                    Style::default()
+                },
+            );
+            let time_span = Span::styled(time_str, Style::new().fg(Color::Cyan));
+            let imp_span = Span::styled(
+                format!("{imp_symbol} "),
+                month_importance_style(occ.importance),
+            );
+            let rec_span = Span::styled(rec_symbol, Style::new().fg(Color::DarkGray));
+            let title_span = Span::styled(
+                &occ.title,
+                if is_sel {
+                    SELECTED
+                } else {
+                    Style::new().fg(Color::White)
+                },
+            );
+
+            lines.push(Line::from(vec![
+                cursor_span,
+                time_span,
+                imp_span,
+                rec_span,
+                title_span,
+            ]));
+        }
+
+        for (j, note) in notes.iter().enumerate() {
+            let idx = occurrences.len() + j;
+            let is_sel = idx == selected_index;
+            let cursor = if is_sel { " › " } else { "   " };
+            let cursor_span = Span::styled(
+                cursor,
+                if is_sel {
+                    SELECTED
+                } else {
+                    Style::default()
+                },
+            );
+            let icon_span = Span::styled("◆ ", Style::new().fg(Color::Yellow));
+            let title_text = note.title.as_deref().unwrap_or(&note.body);
+            let title_span = Span::styled(
+                title_text,
+                if is_sel {
+                    SELECTED
+                } else {
+                    Style::new().fg(Color::Yellow)
+                },
+            );
+
+            lines.push(Line::from(vec![cursor_span, icon_span, title_span]));
+        }
+    }
+
+    let title = format!(" {} [{}] ", date.format("%d.%m.%Y"), total_items);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(title, SELECTED))
+        .border_style(FOCUSED);
+
+    frame.render_widget(Paragraph::new(lines).block(block), popup_rect);
+}
+
+fn month_importance_style(importance: Importance) -> Style {
+    match importance {
+        Importance::High => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+        Importance::Normal => Style::new().fg(Color::Rgb(255, 165, 0)),
+        Importance::Low => Style::new().fg(Color::Gray),
+        Importance::None => Style::new().fg(Color::DarkGray),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +357,16 @@ mod tests {
             high.style,
             Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
         );
+    }
+
+    #[test]
+    fn month_day_cell_calculates_bounds() {
+        let area = Rect::new(0, 0, 100, 30);
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let cell = month_day_cell(area, date);
+        assert!(cell.is_some());
+        let rect = cell.unwrap();
+        assert!(rect.width > 0);
+        assert!(rect.height > 0);
     }
 }
