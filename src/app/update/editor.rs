@@ -167,6 +167,7 @@ impl App {
             _ => {}
         }
         self.refresh_tag_suggestions()?;
+        self.refresh_path_suggestions();
         Ok(())
     }
 
@@ -201,6 +202,7 @@ impl App {
             _ => {}
         }
         self.refresh_tag_suggestions()?;
+        self.refresh_path_suggestions();
         Ok(())
     }
 
@@ -220,10 +222,13 @@ impl App {
             _ => {}
         }
         self.state.tag_suggestions.clear();
+        self.state.path_suggestions.clear();
+        self.refresh_path_suggestions();
+        _ = self.refresh_tag_suggestions();
     }
 
     pub(super) fn adjust_field(&mut self, forward: bool) {
-        let suggestion = forward
+        let tag_suggestion = forward
             .then(|| {
                 self.state
                     .tag_suggestions
@@ -231,9 +236,12 @@ impl App {
                     .map(|tag| tag.name.clone())
             })
             .flatten();
+        let path_suggestion = forward
+            .then(|| self.state.path_suggestions.first().cloned())
+            .flatten();
         if let Some(Popup::Editor(Editor::Event { form, .. })) = self.state.popup.as_mut() {
             if form.active == EventForm::TAGS_FIELD
-                && let Some(suggestion) = suggestion
+                && let Some(suggestion) = tag_suggestion
             {
                 let start = form
                     .tags
@@ -246,10 +254,31 @@ impl App {
                 form.tags.push_str(&suggestion);
                 form.tags.push(' ');
                 self.state.tag_suggestions.clear();
+            } else if form.active == EventForm::DIRECTORY_FIELD
+                && let Some(suggestion) = path_suggestion
+            {
+                form.directory = suggestion;
+                self.refresh_path_suggestions();
             } else {
                 form.adjust(forward);
             }
         }
+    }
+
+    pub(super) fn refresh_path_suggestions(&mut self) {
+        let input = match self.state.popup.as_ref() {
+            Some(Popup::Editor(Editor::Event { form, .. }))
+                if form.active == EventForm::DIRECTORY_FIELD =>
+            {
+                form.directory.trim().to_owned()
+            }
+            _ => String::new(),
+        };
+        self.state.path_suggestions = if input.is_empty() {
+            Vec::new()
+        } else {
+            crate::completion::complete_directories(&input, 5)
+        };
     }
 
     pub(super) fn refresh_tag_suggestions(&mut self) -> AppResult<()> {
@@ -404,6 +433,14 @@ impl App {
     }
 
     pub(super) fn tab_field(&mut self) {
+        let has_completion = match self.state.popup.as_ref() {
+            Some(Popup::Editor(Editor::Event { form, .. })) => {
+                (form.active == EventForm::TAGS_FIELD && !self.state.tag_suggestions.is_empty())
+                    || (form.active == EventForm::DIRECTORY_FIELD
+                        && !self.state.path_suggestions.is_empty())
+            }
+            _ => false,
+        };
         let is_choice = matches!(
             self.state.popup.as_ref(),
             Some(Popup::Editor(Editor::Event { form, .. }))
@@ -412,7 +449,7 @@ impl App {
                     EventForm::IMPORTANCE_FIELD | EventForm::REPEAT_FIELD
                 )
         );
-        if is_choice {
+        if has_completion || is_choice {
             self.adjust_field(true);
         } else {
             self.move_field(1);
@@ -465,6 +502,7 @@ impl App {
         }
         self.state.popup = None;
         self.state.tag_suggestions.clear();
+        self.state.path_suggestions.clear();
         self.state.status_message = Some("Сохранено".into());
         self.refresh_after_change()?;
         self.sync_input_mode();

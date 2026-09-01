@@ -497,4 +497,33 @@ mod tests {
             assert_eq!(app.state.agenda.filters.date, expected);
         }
     }
+
+    #[test]
+    fn directory_autocompletion_in_editor() {
+        let temp_dir = std::env::temp_dir().join("rutendar_test_dir_comp");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join("subfolder")).unwrap();
+
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.apply(Action::Create).unwrap();
+
+        if let Some(Popup::Editor(Editor::Event { form, .. })) = app.state.popup.as_mut() {
+            form.active = EventForm::DIRECTORY_FIELD;
+            form.directory = format!("{}/sub", temp_dir.display());
+        }
+
+        app.apply(Action::Input('f')).unwrap();
+        assert!(!app.state.path_suggestions.is_empty());
+        assert!(app.state.path_suggestions[0].ends_with("/subfolder/"));
+
+        app.apply(Action::TabField).unwrap();
+        if let Some(Popup::Editor(Editor::Event { form, .. })) = app.state.popup.as_ref() {
+            assert!(form.directory.ends_with("/subfolder/"));
+        } else {
+            panic!("expected editor popup");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

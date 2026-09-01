@@ -296,7 +296,13 @@ impl EventForm {
         let directory = if self.directory.trim().is_empty() {
             None
         } else {
-            let directory = std::fs::canonicalize(self.directory.trim())?;
+            let expanded = crate::completion::expand_tilde(self.directory.trim());
+            let directory = std::fs::canonicalize(&expanded).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("directory error: {error}"),
+                )
+            })?;
             if !directory.is_dir() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
@@ -532,6 +538,7 @@ pub struct AppState {
     pub next: Vec<EventOccurrence>,
     pub next_total: usize,
     pub tag_suggestions: Vec<Tag>,
+    pub path_suggestions: Vec<String>,
     pub link_bank: Option<LinkBankState>,
     pub status_message: Option<String>,
     pub loaded_range: Option<(NaiveDate, NaiveDate)>,

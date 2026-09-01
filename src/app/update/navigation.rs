@@ -104,7 +104,7 @@ impl App {
                         }
                     }
                     FocusedPane::Links => {
-                        let links_count = self.selected_note().map_or(0, |note| note.links.len());
+                        let links_count = self.day_links_count();
                         if delta < 0 && self.state.selected_link == 0 {
                             self.state.focused_pane = FocusedPane::Notes;
                             let notes_count = self.notes_on_selected_date().count();
@@ -317,6 +317,7 @@ impl App {
         } else if self.state.popup.is_some() {
             self.state.popup = None;
             self.state.tag_suggestions.clear();
+            self.state.path_suggestions.clear();
             self.sync_input_mode();
         } else if self.state.agenda.searching {
             self.state.agenda.searching = false;

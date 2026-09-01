@@ -50,6 +50,7 @@ impl App {
                 next: Vec::new(),
                 next_total: 0,
                 tag_suggestions: Vec::new(),
+                path_suggestions: Vec::new(),
                 link_bank: None,
                 status_message: None,
                 loaded_range: None,
@@ -204,8 +205,24 @@ impl App {
         let note_count = self.notes_on_selected_date().count();
         self.state.selected_event = self.state.selected_event.min(event_count.saturating_sub(1));
         self.state.selected_note = self.state.selected_note.min(note_count.saturating_sub(1));
-        let link_count = self.selected_note().map_or(0, |note| note.links.len());
+        let link_count = self.day_links_count();
         self.state.selected_link = self.state.selected_link.min(link_count.saturating_sub(1));
+    }
+
+    pub fn day_links_count(&self) -> usize {
+        let event_mode = self.state.focused_pane == FocusedPane::Events
+            || self.notes_on_selected_date().next().is_none();
+        if event_mode {
+            self.selected_event()
+                .map_or(0, |event| event.favorite_links.len())
+        } else {
+            self.selected_note().map_or(0, |note| note.links.len())
+        }
+    }
+
+    pub fn selected_event(&self) -> Option<&EventOccurrence> {
+        self.events_on_selected_date()
+            .nth(self.state.selected_event)
     }
 
     pub fn events_on_selected_date(&self) -> impl Iterator<Item = &EventOccurrence> {

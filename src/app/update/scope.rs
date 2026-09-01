@@ -2,7 +2,7 @@ use super::app_error;
 use crate::{
     app::{
         App, AppResult, DeleteTarget, Editor, EventForm, EventTarget, FocusedPane, Overlay, Popup,
-        ScopeOperation,
+        ScopeOperation, View,
     },
     model::{EventOccurrence, NewEvent, Note},
     search::SearchResult,
@@ -144,9 +144,35 @@ impl App {
         }
     }
 
-    pub(super) fn selected_url(&self) -> Option<String> {
-        self.selected_event_occurrence()
-            .and_then(|event| event.favorite_links.first().map(|link| link.url.clone()))
-            .or_else(|| self.selected_link().map(|link| link.url.clone()))
+    pub(crate) fn selected_url(&self) -> Option<String> {
+        match self.state.active_view {
+            View::Day if self.state.overlay.is_none() => match self.state.focused_pane {
+                FocusedPane::Events => self
+                    .selected_event()
+                    .and_then(|event| event.favorite_links.first().map(|link| link.url.clone())),
+                FocusedPane::Notes => self.selected_link().map(|link| link.url.clone()),
+                FocusedPane::Links => {
+                    let event_mode = self.notes_on_selected_date().next().is_none()
+                        || (self.selected_note().map_or(0, |n| n.links.len()) == 0
+                            && self
+                                .selected_event()
+                                .is_some_and(|e| !e.favorite_links.is_empty()));
+                    if event_mode {
+                        self.selected_event().and_then(|event| {
+                            event
+                                .favorite_links
+                                .get(self.state.selected_link)
+                                .map(|link| link.url.clone())
+                        })
+                    } else {
+                        self.selected_link().map(|link| link.url.clone())
+                    }
+                }
+            },
+            _ => self
+                .selected_event_occurrence()
+                .and_then(|event| event.favorite_links.first().map(|link| link.url.clone()))
+                .or_else(|| self.selected_link().map(|link| link.url.clone())),
+        }
     }
 }

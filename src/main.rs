@@ -16,6 +16,38 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let bin_name = std::env::args()
+        .next()
+        .and_then(|s| {
+            std::path::Path::new(&s)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
+
+    let mut cmd = rutendar::cli::parse_cli_command(&args)?;
+    if cmd.is_none() && bin_name == "ruty" {
+        cmd = Some(rutendar::cli::CliCommand::List(None));
+    }
+
+    if let Some(cmd) = cmd {
+        let (_config, paths) = Config::load()?;
+        let mut database = Database::open(&paths.database)?;
+        match cmd {
+            rutendar::cli::CliCommand::List(period) => {
+                rutendar::cli::run_list(&database, period)?;
+            }
+            rutendar::cli::CliCommand::Add(add_args) => {
+                rutendar::cli::run_add(&mut database, &add_args)?;
+            }
+            rutendar::cli::CliCommand::Help => {
+                rutendar::cli::print_help();
+            }
+        }
+        return Ok(());
+    }
+
     let (config, paths) = Config::load()?;
     let database = Database::open(&paths.database)?;
     let key_config = config.keys.clone();

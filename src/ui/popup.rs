@@ -260,6 +260,15 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
             footer_spans.push(Span::styled(format!(" #{} ", tag.name), SELECTED));
             footer_spans.push(Span::raw(" "));
         }
+    } else if !app.state.path_suggestions.is_empty() {
+        footer_spans.push(Span::styled(
+            " │ [AUTO]: ",
+            Style::new().fg(Color::DarkGray),
+        ));
+        for path in &app.state.path_suggestions {
+            footer_spans.push(Span::styled(format!(" {path} "), SELECTED));
+            footer_spans.push(Span::raw(" "));
+        }
     }
 
     frame.render_widget(
