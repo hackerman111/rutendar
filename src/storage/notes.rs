@@ -204,10 +204,15 @@ impl Database {
 }
 
 fn validate_link(link: &NewLink) -> StorageResult<()> {
-    if link.label.trim().is_empty() || link.url.trim().is_empty() {
+    validate_link_fields(&link.label, &link.url)
+}
+
+pub(super) fn validate_link_fields(label: &str, url: &str) -> StorageResult<()> {
+    let url = url.trim();
+    if label.trim().is_empty() || url.is_empty() {
         return Err(invalid_input("link label and URL are required"));
     }
-    if !(link.url.starts_with("http://") || link.url.starts_with("https://")) {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err(invalid_input("only http and https links are supported"));
     }
     Ok(())

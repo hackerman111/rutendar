@@ -2,7 +2,7 @@ pub mod action;
 pub mod state;
 pub mod update;
 
-use std::error::Error;
+use std::{error::Error, path::PathBuf};
 
 use chrono::{Local, NaiveDate};
 
@@ -24,6 +24,7 @@ pub struct App {
     pub config: Config,
     pub(crate) database: Database,
     pub(crate) last_clock_minute: i64,
+    pending_directory: Option<PathBuf>,
 }
 
 impl App {
@@ -49,12 +50,14 @@ impl App {
                 next: Vec::new(),
                 next_total: 0,
                 tag_suggestions: Vec::new(),
+                link_bank: None,
                 status_message: None,
                 loaded_range: None,
             },
             config,
             database,
             last_clock_minute: now.timestamp() / 60,
+            pending_directory: None,
         };
         app.refresh_calendar()?;
         app.refresh_upcoming()?;
@@ -81,6 +84,14 @@ impl App {
 
     pub fn input_mode(&self) -> InputMode {
         self.state.input_mode
+    }
+
+    pub fn take_directory_request(&mut self) -> Option<PathBuf> {
+        self.pending_directory.take()
+    }
+
+    pub fn report_error(&mut self, error: impl std::fmt::Display) {
+        self.set_error(error);
     }
 
     pub(crate) fn view_range(&self) -> (NaiveDate, NaiveDate) {
@@ -114,24 +125,23 @@ impl App {
 
     pub(crate) fn refresh_upcoming(&mut self) -> AppResult<()> {
         let now = Local::now();
-        let time_page = self.database.upcoming_events(
+        let next_page = self.database.upcoming_events(
             now,
-            200.max(self.config.agenda.next_events),
+            Some(week_end(now.date_naive())),
+            self.config.agenda.next_events,
             UpcomingSort::Time,
         )?;
-        self.state.next_total = time_page.total;
-        self.state.next = time_page
-            .items
-            .iter()
-            .take(self.config.agenda.next_events)
-            .cloned()
-            .collect();
+        self.state.next_total = next_page.total;
+        self.state.next = next_page.items;
+        let time_page = self
+            .database
+            .upcoming_events(now, None, 200, UpcomingSort::Time)?;
         self.state.upcoming.items = if self.state.upcoming.sort == UpcomingSort::Importance {
             self.database
-                .upcoming_events(now, 200, UpcomingSort::Importance)?
+                .upcoming_events(now, None, 200, UpcomingSort::Importance)?
                 .items
         } else {
-            time_page.items.into_iter().take(200).collect()
+            time_page.items
         };
         let mut dates: Vec<_> = self
             .state

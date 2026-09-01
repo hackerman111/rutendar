@@ -6,8 +6,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
-use super::widgets::{FOCUSED, UNFOCUSED, styled_event_spans, styled_tags_line};
-use crate::app::{App, FocusedPane};
+use super::widgets::{FOCUSED, SELECTED, UNFOCUSED, styled_event_spans, tags_line};
+use crate::{
+    app::{App, FocusedPane},
+    model::EventOccurrence,
+};
 
 pub fn render_day(frame: &mut Frame, area: Rect, app: &App) {
     let direction = if area.width >= 80 {
@@ -42,21 +45,21 @@ pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
         .map(|(index, event)| {
             let is_selected = focused && index == app.state.selected_event;
             let mut lines = vec![Line::from(styled_event_spans(app, event, is_selected))];
-            if !event.tags.is_empty() {
-                lines.push(styled_tags_line(event, is_selected));
+            if let Some(details) = event_details_line(event, is_selected) {
+                lines.push(details);
             }
             ListItem::new(lines)
         })
         .collect::<Vec<_>>();
 
     let title = if focused {
-        format!(" ▌СОБЫТИЯ▐ ({total_count}) ")
+        format!(" СОБЫТИЯ ({total_count}) ")
     } else {
         format!(" [ СОБЫТИЯ ] ({total_count}) ")
     };
 
     let title_style = if focused {
-        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        SELECTED
     } else {
         Style::new().fg(Color::DarkGray)
     };
@@ -70,6 +73,45 @@ pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
         ),
         area,
     );
+}
+
+fn event_details_line(event: &EventOccurrence, is_selected: bool) -> Option<Line<'static>> {
+    if event.tags.is_empty() && event.favorite_links.is_empty() {
+        return None;
+    }
+
+    let mut spans = vec![Span::raw("    ")];
+    let tags = tags_line(event);
+    if !tags.is_empty() {
+        spans.push(Span::styled(
+            tags,
+            Style::new().fg(if is_selected {
+                Color::Cyan
+            } else {
+                Color::DarkGray
+            }),
+        ));
+    }
+    for link in &event.favorite_links {
+        if spans.len() > 1 {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(
+            format!("🔗 {}", link.label),
+            Style::new()
+                .fg(if is_selected {
+                    Color::Cyan
+                } else {
+                    Color::White
+                })
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            format!(" › {}", link.url),
+            Style::new().fg(Color::Cyan),
+        ));
+    }
+    Some(Line::from(spans))
 }
 
 pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
@@ -126,12 +168,12 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         .collect::<Vec<_>>();
 
     let notes_title = if notes_focused {
-        format!(" ▌ЗАМЕТКИ▐ ({total_notes}) ")
+        format!(" ЗАМЕТКИ ({total_notes}) ")
     } else {
         format!(" [ ЗАМЕТКИ ] ({total_notes}) ")
     };
     let notes_title_style = if notes_focused {
-        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        SELECTED
     } else {
         Style::new().fg(Color::DarkGray)
     };
@@ -204,12 +246,12 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         .unwrap_or_default();
 
     let links_title = if links_focused {
-        format!(" ▌ССЫЛКИ▐ ({total_links}) ")
+        format!(" ССЫЛКИ ({total_links}) ")
     } else {
         format!(" [ ССЫЛКИ ] ({total_links}) ")
     };
     let links_title_style = if links_focused {
-        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        SELECTED
     } else {
         Style::new().fg(Color::DarkGray)
     };
@@ -223,4 +265,46 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         ),
         rows[2],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDate;
+
+    use super::*;
+    use crate::model::{Event, FavoriteLink, Importance};
+
+    #[test]
+    fn event_details_show_an_attached_favorite_link() {
+        let date = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let mut event = EventOccurrence::from_event(
+            &Event {
+                id: 1,
+                title: "ДЗ".into(),
+                description: None,
+                start_date: date,
+                start_time: None,
+                end_time: None,
+                importance: Importance::Normal,
+                recurrence_id: None,
+                directory: None,
+            },
+            Vec::new(),
+        );
+        event.favorite_links.push(FavoriteLink {
+            id: 1,
+            label: "Условие".into(),
+            url: "https://example.com/task".into(),
+            description: None,
+            tags: "#дз".into(),
+        });
+
+        let line = event_details_line(&event, false).unwrap();
+        let rendered = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(rendered, "    🔗 Условие › https://example.com/task");
+    }
 }

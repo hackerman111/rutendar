@@ -1,5 +1,6 @@
 pub mod agenda;
 pub mod day;
+pub mod link_bank;
 pub mod month;
 pub mod popup;
 pub mod upcoming;
@@ -23,7 +24,7 @@ use self::{
     popup::render_popup,
     upcoming::render_upcoming,
     week::render_week,
-    widgets::{month_name, weekday_long},
+    widgets::{SELECTED, month_name, weekday_long},
     year::render_year,
 };
 use crate::{
@@ -111,10 +112,7 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     // View tabs
     for view in [View::Week, View::Day, View::Month, View::Year] {
         if app.state.active_view == view {
-            spans.push(Span::styled(
-                format!("[{}]", view.label()),
-                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ));
+            spans.push(Span::styled(format!(" {} ", view.label()), SELECTED));
         } else {
             spans.push(Span::styled(
                 format!(" {} ", view.label()),
@@ -216,6 +214,20 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App) {
         ),
         InputMode::Search => (
             " SEARCH ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::LinkBank => (
+            " LINKS ",
+            Style::new()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        InputMode::LinkSearch => (
+            " LINK SEARCH ",
             Style::new()
                 .fg(Color::Black)
                 .bg(Color::Green)

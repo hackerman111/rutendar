@@ -9,9 +9,11 @@ use ratatui::{
 
 use super::{
     day::render_day,
-    widgets::{FOCUSED, UNFOCUSED, styled_event_spans, styled_tags_line, weekday_short},
+    widgets::{
+        SELECTED, calendar_border_style, styled_event_spans, styled_tags_line, weekday_short,
+    },
 };
-use crate::{app::App, calendar::week_start};
+use crate::{app::App, calendar::week_start, model::Importance};
 
 pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
     if area.width < 70 {
@@ -33,6 +35,9 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             .collect();
         let selected = date == app.state.selected_date;
         let is_today = date == app.state.today;
+        let has_high_importance = events
+            .iter()
+            .any(|event| event.importance == Importance::High);
 
         let title_spans = if is_today {
             vec![
@@ -50,8 +55,8 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             ]
         } else if selected {
             vec![Span::styled(
-                format!("[ {} {:02} ]", weekday_short(date), date.day()),
-                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                format!(" {} {:02} ", weekday_short(date), date.day()),
+                SELECTED,
             )]
         } else {
             vec![Span::styled(
@@ -91,7 +96,7 @@ pub fn render_week(frame: &mut Frame, area: Rect, app: &App) {
             })
             .collect::<Vec<_>>();
 
-        let border_style = if selected { FOCUSED } else { UNFOCUSED };
+        let border_style = calendar_border_style(selected, is_today, has_high_importance);
 
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(

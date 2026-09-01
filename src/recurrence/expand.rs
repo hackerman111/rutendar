@@ -152,6 +152,7 @@ mod tests {
             end_time: None,
             importance: Importance::Normal,
             recurrence_id: Some(1),
+            directory: None,
         }
     }
 

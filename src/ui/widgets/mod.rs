@@ -54,6 +54,18 @@ pub fn importance_style(importance: Importance) -> Style {
     }
 }
 
+pub fn calendar_border_style(selected: bool, current: bool, has_high_importance: bool) -> Style {
+    if has_high_importance {
+        importance_style(Importance::High)
+    } else if current {
+        Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)
+    } else if selected {
+        FOCUSED
+    } else {
+        UNFOCUSED
+    }
+}
+
 pub fn event_line(app: &App, event: &EventOccurrence) -> String {
     let recurring = if event.is_recurring { "↻" } else { "" };
     let time = event
@@ -124,6 +136,27 @@ pub fn styled_event_spans(
         Style::new().fg(COLOR_TEXT)
     };
     spans.push(Span::styled(format!("{} ", event.title), title_style));
+
+    if !event.favorite_links.is_empty() {
+        spans.push(Span::styled(
+            format!("🔗{} ", event.favorite_links.len()),
+            if is_selected {
+                sel_style
+            } else {
+                Style::new().fg(COLOR_MUTED)
+            },
+        ));
+    }
+    if event.directory.is_some() {
+        spans.push(Span::styled(
+            "📁 ",
+            if is_selected {
+                sel_style
+            } else {
+                Style::new().fg(COLOR_MUTED)
+            },
+        ));
+    }
 
     spans
 }
@@ -270,5 +303,24 @@ pub fn month_name(month: u32) -> &'static str {
         11 => "НОЯБРЬ",
         12 => "ДЕКАБРЬ",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calendar_border_prioritizes_important_then_current_then_selected() {
+        assert_eq!(
+            calendar_border_style(true, true, true),
+            importance_style(Importance::High)
+        );
+        assert_eq!(
+            calendar_border_style(true, true, false),
+            Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(calendar_border_style(true, false, false), FOCUSED);
+        assert_eq!(calendar_border_style(false, false, false), UNFOCUSED);
     }
 }

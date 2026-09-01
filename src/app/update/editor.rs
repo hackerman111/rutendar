@@ -1,8 +1,8 @@
-use super::app_error;
+use super::{app_error, move_index};
 use crate::{
     app::{
-        App, AppResult, Editor, EventForm, EventTarget, FocusedPane, LinkForm, NoteForm, Overlay,
-        Popup, ScopeOperation,
+        App, AppResult, Editor, EventForm, EventTarget, FavoriteLinkForm, FocusedPane, LinkForm,
+        NoteForm, Overlay, Popup, ScopeOperation,
     },
     model::{EventId, NewLink, NewNote, parse_date},
 };
@@ -123,19 +123,28 @@ impl App {
             .get_event(event_id)?
             .ok_or_else(|| app_error("event no longer exists"))?;
         let tags = self.database.event_tags(event_id)?;
+        let favorite_links = self.database.favorite_links_for_event(event_id)?;
         let recurrence = event
             .recurrence_id
             .map(|id| self.database.get_recurrence(id))
             .transpose()?
             .flatten();
         self.state.popup = Some(Popup::Editor(Editor::Event {
-            form: EventForm::from_event(&event, &tags, recurrence.as_ref()),
+            form: EventForm::from_event(&event, &tags, &favorite_links, recurrence.as_ref()),
             target: EventTarget::Event(event.id),
         }));
         Ok(())
     }
 
     pub(super) fn input_character(&mut self, character: char) -> AppResult<()> {
+        if self
+            .state
+            .link_bank
+            .as_ref()
+            .is_some_and(|bank| bank.searching)
+        {
+            return self.input_link_search(character);
+        }
         match self.state.popup.as_mut() {
             Some(Popup::Editor(Editor::Event { form, .. })) => form.push(character),
             Some(Popup::Editor(Editor::Note { form, .. })) => match form.active {
@@ -149,6 +158,7 @@ impl App {
                 1 => form.url.push(character),
                 _ => {}
             },
+            Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => form.push(character),
             Some(Popup::GotoDate(value)) => value.push(character),
             _ if self.state.agenda.searching => {
                 self.state.agenda.query.push(character);
@@ -161,6 +171,14 @@ impl App {
     }
 
     pub(super) fn backspace(&mut self) -> AppResult<()> {
+        if self
+            .state
+            .link_bank
+            .as_ref()
+            .is_some_and(|bank| bank.searching)
+        {
+            return self.backspace_link_search();
+        }
         match self.state.popup.as_mut() {
             Some(Popup::Editor(Editor::Event { form, .. })) => form.backspace(),
             Some(Popup::Editor(Editor::Note { form, .. })) => match form.active {
@@ -174,6 +192,7 @@ impl App {
                 1 => _ = form.url.pop(),
                 _ => {}
             },
+            Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => form.backspace(),
             Some(Popup::GotoDate(value)) => _ = value.pop(),
             _ if self.state.agenda.searching => {
                 _ = self.state.agenda.query.pop();
@@ -187,7 +206,7 @@ impl App {
 
     pub(super) fn move_field(&mut self, delta: i32) {
         let move_active = |active: &mut usize, count: usize| {
-            *active = (*active as i32 + delta).rem_euclid(count as i32) as usize;
+            *active = move_index(*active, count, delta);
         };
         match self.state.popup.as_mut() {
             Some(Popup::Editor(Editor::Event { form, .. })) => {
@@ -195,6 +214,9 @@ impl App {
             }
             Some(Popup::Editor(Editor::Note { form, .. })) => move_active(&mut form.active, 3),
             Some(Popup::Editor(Editor::Link { form, .. })) => move_active(&mut form.active, 2),
+            Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => {
+                move_active(&mut form.active, FavoriteLinkForm::FIELD_COUNT)
+            }
             _ => {}
         }
         self.state.tag_suggestions.clear();
@@ -210,7 +232,7 @@ impl App {
             })
             .flatten();
         if let Some(Popup::Editor(Editor::Event { form, .. })) = self.state.popup.as_mut() {
-            if form.active == 5
+            if form.active == EventForm::TAGS_FIELD
                 && let Some(suggestion) = suggestion
             {
                 let start = form
@@ -232,13 +254,16 @@ impl App {
 
     pub(super) fn refresh_tag_suggestions(&mut self) -> AppResult<()> {
         let prefix = match self.state.popup.as_ref() {
-            Some(Popup::Editor(Editor::Event { form, .. })) if form.active == 5 => form
-                .tags
-                .split_whitespace()
-                .next_back()
-                .unwrap_or("")
-                .trim_start_matches('#')
-                .to_owned(),
+            Some(Popup::Editor(Editor::Event { form, .. }))
+                if form.active == EventForm::TAGS_FIELD =>
+            {
+                form.tags
+                    .split_whitespace()
+                    .next_back()
+                    .unwrap_or("")
+                    .trim_start_matches('#')
+                    .to_owned()
+            }
             _ => String::new(),
         };
         self.state.tag_suggestions = if prefix.is_empty() {
@@ -252,11 +277,7 @@ impl App {
     pub(super) fn submit(&mut self) -> AppResult<()> {
         match self.state.popup.clone() {
             Some(Popup::Editor(editor)) => {
-                self.save_editor(editor)?;
-                self.state.popup = None;
-                self.state.tag_suggestions.clear();
-                self.state.status_message = Some("Сохранено".into());
-                self.refresh_after_change()?;
+                self.finish_editor(editor)?;
             }
             Some(Popup::GotoDate(value)) => {
                 self.state.selected_date = parse_date(&value)?;
@@ -265,6 +286,15 @@ impl App {
                 self.refresh_calendar()?;
             }
             Some(Popup::Help) => self.state.popup = None,
+            Some(Popup::LinkBank)
+                if self
+                    .state
+                    .link_bank
+                    .as_ref()
+                    .is_some_and(|bank| bank.searching) =>
+            {
+                self.finish_link_search();
+            }
             _ if self.state.agenda.searching => {
                 self.state.agenda.searching = false;
                 self.refresh_agenda()?;
@@ -278,16 +308,25 @@ impl App {
     pub(super) fn save_editor(&mut self, editor: Editor) -> AppResult<()> {
         match editor {
             Editor::Event { form, target } => {
-                let (event, recurrence, tags) = form.values()?;
+                let (event, recurrence, tags, favorite_link_ids) = form.values()?;
                 self.state.selected_date = event.start_date;
                 match target {
                     EventTarget::New => {
-                        self.database
-                            .create_event(&event, recurrence.as_ref(), &tags)?;
+                        self.database.create_event(
+                            &event,
+                            recurrence.as_ref(),
+                            &tags,
+                            &favorite_link_ids,
+                        )?;
                     }
                     EventTarget::Event(id) => {
-                        self.database
-                            .update_event(id, &event, recurrence.as_ref(), &tags)?;
+                        self.database.update_event(
+                            id,
+                            &event,
+                            recurrence.as_ref(),
+                            &tags,
+                            &favorite_link_ids,
+                        )?;
                     }
                     EventTarget::Occurrence {
                         recurrence_id,
@@ -298,6 +337,7 @@ impl App {
                             original_date,
                             &event,
                             &tags,
+                            &favorite_link_ids,
                         )?;
                     }
                 }
@@ -327,7 +367,107 @@ impl App {
                     self.database.create_link(&link)?;
                 }
             }
+            Editor::FavoriteLink { form, target } => {
+                return self.finish_favorite_link(form, target);
+            }
         }
+        Ok(())
+    }
+
+    pub(super) fn enter_field(&mut self) -> AppResult<()> {
+        let Some((active, count, opens_link_bank)) = (match self.state.popup.as_ref() {
+            Some(Popup::Editor(Editor::Event { form, .. })) => Some((
+                form.active,
+                EventForm::FIELD_COUNT,
+                form.active == EventForm::LINKS_FIELD,
+            )),
+            Some(Popup::Editor(Editor::Note { form, .. })) => Some((form.active, 3, false)),
+            Some(Popup::Editor(Editor::Link { form, .. })) => Some((form.active, 2, false)),
+            Some(Popup::Editor(Editor::FavoriteLink { form, .. })) => {
+                Some((form.active, FavoriteLinkForm::FIELD_COUNT, false))
+            }
+            _ => None,
+        }) else {
+            return Ok(());
+        };
+        if opens_link_bank {
+            if let Some(Popup::Editor(Editor::Event { form, .. })) = self.state.popup.as_mut() {
+                form.active = EventForm::DIRECTORY_FIELD;
+            }
+            self.open_link_bank()?;
+        } else if active + 1 >= count {
+            self.ask_save();
+        } else {
+            self.move_field(1);
+        }
+        Ok(())
+    }
+
+    pub(super) fn tab_field(&mut self) {
+        let is_choice = matches!(
+            self.state.popup.as_ref(),
+            Some(Popup::Editor(Editor::Event { form, .. }))
+                if matches!(
+                    form.active,
+                    EventForm::IMPORTANCE_FIELD | EventForm::REPEAT_FIELD
+                )
+        );
+        if is_choice {
+            self.adjust_field(true);
+        } else {
+            self.move_field(1);
+        }
+    }
+
+    pub(super) fn confirm_save(&mut self, confirmed: bool) -> AppResult<()> {
+        let Some(Popup::SaveConfirm { editor, .. }) = self.state.popup.clone() else {
+            return Ok(());
+        };
+        if confirmed {
+            self.finish_editor(editor)?;
+        } else {
+            self.state.popup = Some(Popup::Editor(editor));
+            self.sync_input_mode();
+        }
+        Ok(())
+    }
+
+    fn ask_save(&mut self) {
+        let Some(Popup::Editor(editor)) = self.state.popup.take() else {
+            return;
+        };
+        let creating = matches!(
+            &editor,
+            Editor::Event {
+                target: EventTarget::New,
+                ..
+            } | Editor::Note { target: None, .. }
+                | Editor::Link { target: None, .. }
+                | Editor::FavoriteLink { target: None, .. }
+        );
+        self.state.popup = Some(Popup::SaveConfirm {
+            message: if creating {
+                "Завершить создание?".into()
+            } else {
+                "Завершить редактирование?".into()
+            },
+            editor,
+        });
+        self.sync_input_mode();
+    }
+
+    fn finish_editor(&mut self, editor: Editor) -> AppResult<()> {
+        match editor {
+            Editor::FavoriteLink { form, target } => {
+                return self.finish_favorite_link(form, target);
+            }
+            editor => self.save_editor(editor)?,
+        }
+        self.state.popup = None;
+        self.state.tag_suggestions.clear();
+        self.state.status_message = Some("Сохранено".into());
+        self.refresh_after_change()?;
+        self.sync_input_mode();
         Ok(())
     }
 }

@@ -1,7 +1,10 @@
+use std::path::PathBuf;
+
 use chrono::{NaiveDate, NaiveTime};
 
 use super::{
     event::{Event, EventId, Importance},
+    favorite_link::FavoriteLink,
     tag::Tag,
 };
 use crate::recurrence::RecurrenceId;
@@ -18,6 +21,8 @@ pub struct EventOccurrence {
     pub description: Option<String>,
     pub importance: Importance,
     pub tags: Vec<Tag>,
+    pub favorite_links: Vec<FavoriteLink>,
+    pub directory: Option<PathBuf>,
     pub is_recurring: bool,
 }
 
@@ -34,6 +39,8 @@ impl EventOccurrence {
             description: event.description.clone(),
             importance: event.importance,
             tags,
+            favorite_links: Vec::new(),
+            directory: event.directory.clone(),
             is_recurring: event.recurrence_id.is_some(),
         }
     }

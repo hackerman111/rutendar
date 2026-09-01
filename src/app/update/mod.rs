@@ -1,5 +1,6 @@
 mod delete;
 mod editor;
+mod favorite_links;
 mod navigation;
 mod scope;
 
@@ -104,19 +105,28 @@ impl App {
             }
             Action::OpenLink => {
                 let url = self
-                    .selected_link()
-                    .map(|link| link.url.clone())
+                    .selected_url()
                     .ok_or_else(|| app_error("no link selected"))?;
                 external::open_url(&url)?;
                 self.state.status_message = Some("Ссылка открыта".into());
             }
             Action::CopyLink => {
                 let url = self
-                    .selected_link()
-                    .map(|link| link.url.clone())
+                    .selected_url()
                     .ok_or_else(|| app_error("no link selected"))?;
                 external::copy_url(&url)?;
                 self.state.status_message = Some("URL скопирован".into());
+            }
+            Action::OpenDirectory => {
+                let directory = self
+                    .selected_event_occurrence()
+                    .and_then(|event| event.directory)
+                    .ok_or_else(|| app_error("no directory attached to the selected event"))?;
+                if !directory.is_dir() {
+                    return Err(app_error("attached event directory no longer exists"));
+                }
+                self.pending_directory = Some(directory);
+                self.state.status_message = Some("Открывается shell в директории события".into());
             }
             Action::ToggleFocus => self.toggle_focus(),
             Action::StartSearch => {
@@ -129,10 +139,24 @@ impl App {
             Action::Backspace => self.backspace()?,
             Action::NextField => self.move_field(1),
             Action::PreviousField => self.move_field(-1),
+            Action::EnterField => self.enter_field()?,
+            Action::TabField => self.tab_field(),
             Action::AdjustLeft => self.adjust_field(false),
             Action::AdjustRight => self.adjust_field(true),
+            Action::OpenLinkBank => self.open_link_bank()?,
+            Action::AddFavoriteLink => self.add_favorite_link(),
+            Action::EditFavoriteLink => self.edit_favorite_link(),
+            Action::ToggleFavoriteLink => self.toggle_favorite_link()?,
+            Action::StartLinkSearch => self.start_link_search(),
+            Action::OpenFavoriteLink => self.open_favorite_link()?,
             Action::Submit => self.submit()?,
-            Action::Confirm(confirmed) => self.confirm_delete(confirmed)?,
+            Action::Confirm(confirmed) => {
+                if matches!(self.state.popup, Some(Popup::SaveConfirm { .. })) {
+                    self.confirm_save(confirmed)?;
+                } else {
+                    self.confirm_delete(confirmed)?;
+                }
+            }
             Action::ChooseOccurrence => self.choose_scope(false)?,
             Action::ChooseSeries => self.choose_scope(true)?,
             Action::CycleDateFilter => {
@@ -141,8 +165,7 @@ impl App {
                         DateFilter::All => DateFilter::Today,
                         DateFilter::Today => DateFilter::ThisWeek,
                         DateFilter::ThisWeek => DateFilter::ThisMonth,
-                        DateFilter::ThisMonth => DateFilter::Upcoming,
-                        DateFilter::Upcoming => DateFilter::All,
+                        DateFilter::ThisMonth => DateFilter::All,
                     };
                     self.refresh_agenda()?;
                 }
@@ -250,9 +273,22 @@ impl App {
     pub(super) fn sync_input_mode(&mut self) {
         self.state.input_mode = match self.state.popup {
             Some(Popup::Editor(_)) => InputMode::Editor,
+            Some(Popup::SaveConfirm { .. }) => InputMode::Confirm,
             Some(Popup::Confirm { .. }) => InputMode::Confirm,
             Some(Popup::Scope(_)) => InputMode::Scope,
             Some(Popup::GotoDate(_)) => InputMode::GotoDate,
+            Some(Popup::LinkBank) => {
+                if self
+                    .state
+                    .link_bank
+                    .as_ref()
+                    .is_some_and(|bank| bank.searching)
+                {
+                    InputMode::LinkSearch
+                } else {
+                    InputMode::LinkBank
+                }
+            }
             Some(Popup::Help) => InputMode::Normal,
             None if self.state.agenda.searching => InputMode::Search,
             None => InputMode::Normal,
@@ -278,8 +314,9 @@ pub(super) fn app_error(message: &'static str) -> Box<dyn Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::FocusedPane;
+    use crate::app::{Editor, EventForm, EventTarget, NoteForm, Popup, state::FocusedPane};
     use crate::config::Config;
+    use crate::model::{Event, EventOccurrence, Importance};
     use crate::storage::Database;
     use chrono::Duration;
 
@@ -340,5 +377,124 @@ mod tests {
 
         app.apply(Action::PreviousDay).unwrap();
         assert_eq!(app.state.selected_date, initial_date);
+    }
+
+    #[test]
+    fn editor_enter_confirms_at_the_end_and_tab_changes_choices() {
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        let mut form = EventForm::new(app.state.today);
+        form.active = EventForm::IMPORTANCE_FIELD;
+        app.state.popup = Some(Popup::Editor(Editor::Event {
+            form,
+            target: EventTarget::New,
+        }));
+
+        app.apply(Action::TabField).unwrap();
+        let Some(Popup::Editor(Editor::Event { form, .. })) = app.state.popup.as_mut() else {
+            panic!("event editor should stay open");
+        };
+        assert_eq!(form.importance, Importance::High);
+        assert_eq!(form.active, EventForm::IMPORTANCE_FIELD);
+        form.active = EventForm::REPEAT_FIELD;
+        app.apply(Action::TabField).unwrap();
+        let Some(Popup::Editor(Editor::Event { form, .. })) = app.state.popup.as_mut() else {
+            panic!("event editor should stay open");
+        };
+        assert!(form.weekly);
+        form.active = EventForm::DIRECTORY_FIELD;
+
+        app.apply(Action::EnterField).unwrap();
+        assert!(matches!(app.state.popup, Some(Popup::SaveConfirm { .. })));
+        app.apply(Action::Confirm(false)).unwrap();
+        assert!(matches!(
+            app.state.popup,
+            Some(Popup::Editor(Editor::Event { .. }))
+        ));
+
+        app.state.popup = Some(Popup::Editor(Editor::Note {
+            form: NoteForm {
+                title: String::new(),
+                date: app.state.today.format("%d.%m.%Y").to_string(),
+                body: "текст".into(),
+                active: 2,
+            },
+            target: None,
+        }));
+        app.apply(Action::EnterField).unwrap();
+        assert!(matches!(app.state.popup, Some(Popup::SaveConfirm { .. })));
+    }
+
+    #[test]
+    fn link_bank_keeps_the_event_draft_and_directory_action_is_queued() {
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.state.popup = Some(Popup::Editor(Editor::Event {
+            form: EventForm::new(app.state.today),
+            target: EventTarget::New,
+        }));
+        app.apply(Action::OpenLinkBank).unwrap();
+        app.apply(Action::AddFavoriteLink).unwrap();
+        let Some(Popup::Editor(Editor::FavoriteLink { form, .. })) = app.state.popup.as_mut()
+        else {
+            panic!("favorite link editor should open");
+        };
+        form.label = "Условие".into();
+        form.url = "https://example.com/task".into();
+        form.description = "Домашняя работа".into();
+        form.tags = "#дз".into();
+        app.apply(Action::Submit).unwrap();
+        let link_id = app
+            .state
+            .link_bank
+            .as_ref()
+            .unwrap()
+            .event_form
+            .favorite_link_ids[0];
+        app.apply(Action::Back).unwrap();
+        let Some(Popup::Editor(Editor::Event { form, .. })) = app.state.popup.as_ref() else {
+            panic!("event draft should be restored");
+        };
+        assert_eq!(form.favorite_link_ids, [link_id]);
+
+        app.state.popup = None;
+        app.state.active_view = View::Day;
+        app.state.focused_pane = FocusedPane::Events;
+        app.state.occurrences = vec![EventOccurrence::from_event(
+            &Event {
+                id: 1,
+                title: "ДЗ".into(),
+                description: None,
+                start_date: app.state.selected_date,
+                start_time: None,
+                end_time: None,
+                importance: Importance::Normal,
+                recurrence_id: None,
+                directory: Some("/tmp".into()),
+            },
+            Vec::new(),
+        )];
+        app.apply(Action::OpenDirectory).unwrap();
+        assert_eq!(
+            app.take_directory_request().as_deref(),
+            Some(std::path::Path::new("/tmp"))
+        );
+    }
+
+    #[test]
+    fn agenda_date_filter_cycles_day_week_month_all() {
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        app.state.overlay = Some(Overlay::Agenda);
+
+        for expected in [
+            DateFilter::Today,
+            DateFilter::ThisWeek,
+            DateFilter::ThisMonth,
+            DateFilter::All,
+        ] {
+            app.apply(Action::CycleDateFilter).unwrap();
+            assert_eq!(app.state.agenda.filters.date, expected);
+        }
     }
 }

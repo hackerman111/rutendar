@@ -7,10 +7,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, UNFOCUSED};
+use super::widgets::{SELECTED, TODAY, TODAY_BADGE, calendar_border_style};
 use crate::{
     app::App,
     calendar::{month_start, week_start},
+    model::Importance,
 };
 
 pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
@@ -53,12 +54,14 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
             .split(rows[week + 1]);
         for day in 0..7 {
             let date = first + Duration::days((week * 7 + day) as i64);
-            let event_count = app
+            let day_events = app
                 .state
                 .occurrences
                 .iter()
-                .filter(|item| item.date == date)
-                .count();
+                .filter(|item| item.date == date);
+            let has_high_importance = day_events
+                .clone()
+                .any(|event| event.importance == Importance::High);
             let note_count = app
                 .state
                 .notes
@@ -94,14 +97,11 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
             let mut lines = vec![Line::from(header_spans)];
 
             let mut metric_spans = Vec::new();
-            if event_count > 0 {
-                metric_spans.push(Span::styled(
-                    format!(" ●{event_count}"),
-                    if is_curr_month {
-                        Style::new().fg(Color::Cyan)
-                    } else {
-                        Style::new().fg(Color::DarkGray)
-                    },
+            for event in day_events {
+                metric_spans.push(month_event_marker(
+                    event.importance,
+                    event.is_recurring,
+                    is_curr_month,
                 ));
             }
             if note_count > 0 {
@@ -119,13 +119,7 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
                 lines.push(Line::from(metric_spans));
             }
 
-            let border_style = if selected {
-                FOCUSED
-            } else if is_today {
-                TODAY
-            } else {
-                UNFOCUSED
-            };
+            let border_style = calendar_border_style(selected, is_today, has_high_importance);
 
             frame.render_widget(
                 Paragraph::new(lines).block(
@@ -136,5 +130,52 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
                 columns[day],
             );
         }
+    }
+}
+
+fn month_event_marker(
+    importance: Importance,
+    recurring: bool,
+    is_current_month: bool,
+) -> Span<'static> {
+    let symbol = if recurring { "↻" } else { "●" };
+    let marker = if importance == Importance::High {
+        format!(" !{symbol}")
+    } else {
+        format!(" {symbol}")
+    };
+    let style = if !is_current_month {
+        Style::new().fg(Color::DarkGray)
+    } else {
+        match importance {
+            Importance::High => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Importance::Normal => Style::new().fg(Color::Rgb(255, 165, 0)),
+            Importance::Low => Style::new().fg(Color::Gray),
+            Importance::None => Style::new().fg(Color::DarkGray),
+        }
+    };
+    Span::styled(marker, style)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn month_markers_distinguish_priority_and_recurrence() {
+        let low = month_event_marker(Importance::Low, false, true);
+        assert_eq!(low.content, " ●");
+        assert_eq!(low.style, Style::new().fg(Color::Gray));
+
+        let normal = month_event_marker(Importance::Normal, true, true);
+        assert_eq!(normal.content, " ↻");
+        assert_eq!(normal.style, Style::new().fg(Color::Rgb(255, 165, 0)));
+
+        let high = month_event_marker(Importance::High, false, true);
+        assert_eq!(high.content, " !●");
+        assert_eq!(
+            high.style,
+            Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+        );
     }
 }

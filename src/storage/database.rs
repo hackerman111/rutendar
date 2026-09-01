@@ -1,4 +1,7 @@
-use std::{error::Error, path::Path};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 use chrono::{Duration, Local, NaiveDate, NaiveTime, Weekday};
 use rusqlite::{Connection, Row, types::Type};
@@ -8,8 +11,8 @@ use crate::{
     model::{Event, EventOccurrence, Frequency, Importance, Recurrence},
     recurrence::MAX_INTERVAL_WEEKS,
     search::{
-        DateFilter, SearchFilters, SearchResult, date_range, event_matches, note_matches,
-        parse_query, sort_results,
+        SearchFilters, SearchResult, date_range, event_matches, note_matches, parse_query,
+        sort_results,
     },
 };
 
@@ -48,14 +51,9 @@ impl Database {
         filters: &SearchFilters,
         today: NaiveDate,
     ) -> StorageResult<Vec<SearchResult>> {
-        let (start, end) = if filters.date == DateFilter::Upcoming {
-            let (_, end) = self.data_bounds(today)?;
-            (today, end)
-        } else {
-            date_range(filters.date, today)
-                .map(Ok)
-                .unwrap_or_else(|| self.data_bounds(today))?
-        };
+        let (start, end) = date_range(filters.date, today)
+            .map(Ok)
+            .unwrap_or_else(|| self.data_bounds(today))?;
         let query = parse_query(input);
         let mut results: Vec<SearchResult> = self
             .events_between(start, end)?
@@ -119,6 +117,7 @@ pub(crate) fn event_from_row(row: &Row<'_>) -> rusqlite::Result<Event> {
         end_time: optional_time_from_row(row, 5)?,
         importance: Importance::from_db(row.get(6)?)?,
         recurrence_id: row.get(7)?,
+        directory: row.get::<_, Option<String>>(8)?.map(PathBuf::from),
     })
 }
 
@@ -257,7 +256,7 @@ mod tests {
     use chrono::TimeZone;
 
     use super::*;
-    use crate::model::{NewEvent, NewLink, NewNote, NewRecurrence, UpcomingOrder};
+    use crate::model::{NewEvent, NewFavoriteLink, NewLink, NewNote, NewRecurrence, UpcomingOrder};
 
     fn date(day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 9, day).unwrap()
@@ -271,6 +270,7 @@ mod tests {
             start_time: NaiveTime::from_hms_opt(14, 40, 0),
             end_time: NaiveTime::from_hms_opt(16, 10, 0),
             importance: Importance::Normal,
+            directory: None,
         }
     }
 
@@ -282,7 +282,7 @@ mod tests {
             .prepare("SELECT version FROM schema_migrations ORDER BY version")?
             .query_map([], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
-        assert_eq!(versions, [1, 2]);
+        assert_eq!(versions, [1, 2, 3]);
         Ok(())
     }
 
@@ -293,9 +293,10 @@ mod tests {
             &event(1),
             None,
             &["Универ".into(), "лекция".into(), " универ ".into()],
+            &[],
         )?;
         let second =
-            database.create_event(&event(3), None, &["универ".into(), "экзамен".into()])?;
+            database.create_event(&event(3), None, &["универ".into(), "экзамен".into()], &[])?;
 
         let all = database.search("#универ", &SearchFilters::default(), date(1))?;
         assert_eq!(all.len(), 2);
@@ -308,13 +309,45 @@ mod tests {
 
         let mut updated = event(2);
         updated.title = "Семинар".into();
-        database.update_event(first, &updated, None, &["обновлено".into()])?;
+        database.update_event(first, &updated, None, &["обновлено".into()], &[])?;
         let stored = database.get_event(first)?.unwrap();
         assert_eq!(stored.title, "Семинар");
         assert_eq!(database.event_tags(first)?[0].normalized_name, "обновлено");
 
         database.delete_event(second)?;
         assert_eq!(database.events_between(date(1), date(30))?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn favorite_links_are_searchable_and_follow_a_recurring_event() -> StorageResult<()> {
+        let mut database = Database::in_memory()?;
+        let link_id = database.create_favorite_link(&NewFavoriteLink {
+            label: "Задание".into(),
+            url: "https://example.com/homework".into(),
+            description: Some("ДЗ по акустике".into()),
+            tags: "#универ #звук".into(),
+        })?;
+        assert_eq!(database.search_favorite_links("ДЗ ЗВУК")?.len(), 1);
+        assert!(database.search_favorite_links("химия")?.is_empty());
+
+        let mut recurring_event = event(1);
+        recurring_event.directory = Some("/tmp".into());
+        let rule = NewRecurrence {
+            interval: 1,
+            weekdays: vec![Weekday::Tue],
+            start_date: date(1),
+            end_date: Some(date(8)),
+            count: None,
+        };
+        database.create_event(&recurring_event, Some(&rule), &[], &[link_id])?;
+
+        let occurrences = database.events_between(date(1), date(8))?;
+        assert_eq!(occurrences.len(), 2);
+        assert!(occurrences.iter().all(|occurrence| {
+            occurrence.directory.as_deref() == Some(std::path::Path::new("/tmp"))
+                && occurrence.favorite_links[0].id == link_id
+        }));
         Ok(())
     }
 
@@ -328,7 +361,7 @@ mod tests {
             end_date: Some(date(22)),
             count: None,
         };
-        let event_id = database.create_event(&event(1), Some(&rule), &["универ".into()])?;
+        let event_id = database.create_event(&event(1), Some(&rule), &["универ".into()], &[])?;
         let recurrence_id = database
             .get_event(event_id)?
             .unwrap()
@@ -338,7 +371,13 @@ mod tests {
         let mut replacement = event(15);
         replacement.start_time = NaiveTime::from_hms_opt(16, 20, 0);
         replacement.end_time = NaiveTime::from_hms_opt(17, 50, 0);
-        database.modify_occurrence(recurrence_id, date(15), &replacement, &["универ".into()])?;
+        database.modify_occurrence(
+            recurrence_id,
+            date(15),
+            &replacement,
+            &["универ".into()],
+            &[],
+        )?;
 
         let occurrences = database.events_between(date(1), date(22))?;
         assert_eq!(occurrences.len(), 3);
@@ -355,7 +394,7 @@ mod tests {
 
         let mut moved = event(22);
         moved.start_date = NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
-        database.modify_occurrence(recurrence_id, date(22), &moved, &["универ".into()])?;
+        database.modify_occurrence(recurrence_id, date(22), &moved, &["универ".into()], &[])?;
         let moved_occurrences = database.events_between(moved.start_date, moved.start_date)?;
         assert_eq!(moved_occurrences.len(), 1);
         assert_eq!(moved_occurrences[0].original_date, date(22));
@@ -379,7 +418,7 @@ mod tests {
             end_date: None,
             count: None,
         };
-        let event_id = database.create_event(&event(1), Some(&rule), &[])?;
+        let event_id = database.create_event(&event(1), Some(&rule), &[], &[])?;
         let recurrence_id = database
             .get_event(event_id)?
             .unwrap()
@@ -391,7 +430,7 @@ mod tests {
         database.cancel_occurrence(recurrence_id, october_6)?;
         let mut moved_into_range = event(5);
         moved_into_range.start_date = date(5);
-        database.modify_occurrence(recurrence_id, october_13, &moved_into_range, &[])?;
+        database.modify_occurrence(recurrence_id, october_13, &moved_into_range, &[], &[])?;
 
         let exceptions = database.exceptions_for(&[recurrence_id], date(1), date(8))?;
         let originals: HashSet<_> = exceptions[&recurrence_id]
@@ -412,14 +451,14 @@ mod tests {
             end_date: None,
             count: None,
         };
-        let event_id = database.create_event(&event(1), Some(&rule), &[])?;
+        let event_id = database.create_event(&event(1), Some(&rule), &[], &[])?;
         let recurrence_id = database
             .get_event(event_id)?
             .unwrap()
             .recurrence_id
             .unwrap();
-        database.modify_occurrence(recurrence_id, date(8), &event(8), &[])?;
-        database.update_event(event_id, &event(1), None, &[])?;
+        database.modify_occurrence(recurrence_id, date(8), &event(8), &[], &[])?;
+        database.update_event(event_id, &event(1), None, &[], &[])?;
 
         let counts: (i64, i64, i64) = database.connection.query_row(
             "SELECT
@@ -436,7 +475,7 @@ mod tests {
     #[test]
     fn deleting_note_and_event_cascades_children() -> StorageResult<()> {
         let mut database = Database::in_memory()?;
-        let event_id = database.create_event(&event(1), None, &["tag".into()])?;
+        let event_id = database.create_event(&event(1), None, &["tag".into()], &[])?;
         let note_id = database.create_note(&NewNote {
             date: date(1),
             title: Some("Домашка".into()),
@@ -489,8 +528,9 @@ mod tests {
     #[test]
     fn tag_cleanup_and_manual_deletion() -> StorageResult<()> {
         let mut database = Database::in_memory()?;
-        let id1 = database.create_event(&event(1), None, &["rust".into(), "calendar".into()])?;
-        let id2 = database.create_event(&event(2), None, &["rust".into()])?;
+        let id1 =
+            database.create_event(&event(1), None, &["rust".into(), "calendar".into()], &[])?;
+        let id2 = database.create_event(&event(2), None, &["rust".into()], &[])?;
 
         assert_eq!(database.search_tags("rust", 10)?.len(), 1);
         assert_eq!(database.search_tags("calendar", 10)?.len(), 1);
@@ -545,14 +585,31 @@ mod tests {
         let mut database = Database::in_memory()?;
         let mut future = event(1);
         future.start_date = NaiveDate::from_ymd_opt(2028, 9, 1).unwrap();
-        database.create_event(&future, None, &[])?;
+        database.create_event(&future, None, &[], &[])?;
         let now = Local
             .with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
             .single()
             .unwrap();
-        let upcoming = database.upcoming_events(now, 10, UpcomingOrder::Time)?;
+        let upcoming = database.upcoming_events(now, None, 10, UpcomingOrder::Time)?;
         assert_eq!(upcoming.items.len(), 1);
         assert_eq!(upcoming.items[0].date, future.start_date);
+        Ok(())
+    }
+
+    #[test]
+    fn upcoming_can_be_limited_to_the_current_week() -> StorageResult<()> {
+        let mut database = Database::in_memory()?;
+        database.create_event(&event(2), None, &[], &[])?;
+        database.create_event(&event(7), None, &[], &[])?;
+        let now = Local
+            .with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
+            .single()
+            .unwrap();
+
+        let upcoming = database.upcoming_events(now, Some(date(6)), 10, UpcomingOrder::Time)?;
+
+        assert_eq!(upcoming.total, 1);
+        assert_eq!(upcoming.items[0].date, date(2));
         Ok(())
     }
 
@@ -564,19 +621,19 @@ mod tests {
             low.title = format!("Low {offset}");
             low.start_date = date(1) + Duration::days(offset);
             low.importance = Importance::Low;
-            database.create_event(&low, None, &[])?;
+            database.create_event(&low, None, &[], &[])?;
         }
         let mut high = event(1);
         high.title = "High".into();
         high.start_date = date(1) + Duration::days(400);
         high.importance = Importance::High;
-        database.create_event(&high, None, &[])?;
+        database.create_event(&high, None, &[], &[])?;
         let now = Local
             .with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
             .single()
             .unwrap();
 
-        let upcoming = database.upcoming_events(now, 200, UpcomingOrder::Importance)?;
+        let upcoming = database.upcoming_events(now, None, 200, UpcomingOrder::Importance)?;
         assert_eq!(upcoming.total, 201);
         assert!(
             upcoming
@@ -598,7 +655,11 @@ mod tests {
             count: None,
         };
 
-        assert!(database.create_event(&event(1), Some(&rule), &[]).is_err());
+        assert!(
+            database
+                .create_event(&event(1), Some(&rule), &[], &[])
+                .is_err()
+        );
         let count: i64 =
             database
                 .connection

@@ -43,6 +43,10 @@ impl App {
     }
 
     pub(super) fn move_vertical(&mut self, delta: i32) -> AppResult<()> {
+        if matches!(self.state.popup, Some(crate::app::Popup::LinkBank)) {
+            self.move_link_bank(delta);
+            return Ok(());
+        }
         if self.state.popup.is_some() {
             return Ok(());
         }
@@ -292,7 +296,25 @@ impl App {
     }
 
     pub(super) fn back(&mut self) -> AppResult<()> {
-        if self.state.popup.is_some() {
+        if self
+            .state
+            .link_bank
+            .as_ref()
+            .is_some_and(|bank| bank.searching)
+        {
+            self.finish_link_search();
+        } else if matches!(self.state.popup, Some(crate::app::Popup::LinkBank)) {
+            self.close_link_bank();
+        } else if matches!(
+            self.state.popup,
+            Some(crate::app::Popup::Editor(
+                crate::app::Editor::FavoriteLink { .. }
+            ))
+        ) && self.state.link_bank.is_some()
+        {
+            self.state.popup = Some(crate::app::Popup::LinkBank);
+            self.sync_input_mode();
+        } else if self.state.popup.is_some() {
             self.state.popup = None;
             self.state.tag_suggestions.clear();
             self.sync_input_mode();

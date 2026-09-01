@@ -9,13 +9,14 @@ use super::{
         date_from_row, date_string, encode_weekdays, event_from_row, invalid_column, invalid_input,
         now_string, occurrence_order, recurrence_from_row, sql_placeholders, time_string,
     },
+    favorite_links::set_event_favorite_links_tx,
     tags::{cleanup_unused_tags_tx, set_event_tags_tx},
 };
 use crate::{
     calendar::week_start,
     model::{
-        Event, EventId, EventOccurrence, ExceptionKind, Importance, NewEvent, NewRecurrence,
-        Recurrence, RecurrenceException, RecurrenceId, UpcomingOrder,
+        Event, EventId, EventOccurrence, ExceptionKind, FavoriteLinkId, Importance, NewEvent,
+        NewRecurrence, Recurrence, RecurrenceException, RecurrenceId, UpcomingOrder,
     },
     recurrence::{MAX_INTERVAL_WEEKS, expand_weekly},
 };
@@ -31,7 +32,8 @@ impl Database {
         }
 
         let mut direct_statement = self.connection.prepare(
-            "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
+            "SELECT id, title, description, start_date, start_time, end_time, importance,
+                    recurrence_id, directory
              FROM events
              WHERE recurrence_id IS NULL
                AND id NOT IN (
@@ -49,7 +51,7 @@ impl Database {
 
         let mut recurring_statement = self.connection.prepare(
             "SELECT e.id, e.title, e.description, e.start_date, e.start_time, e.end_time,
-                    e.importance, e.recurrence_id,
+                    e.importance, e.recurrence_id, e.directory,
                     r.id, r.frequency, r.interval, r.weekdays, r.start_date, r.end_date, r.count
              FROM events e
              JOIN recurrences r ON r.id = e.recurrence_id
@@ -64,7 +66,7 @@ impl Database {
         let recurring: Vec<(Event, Recurrence)> = recurring_statement
             .query_map(
                 params![date_string(range_start), date_string(range_end)],
-                |row| Ok((event_from_row(row)?, recurrence_from_row(row, 8)?)),
+                |row| Ok((event_from_row(row)?, recurrence_from_row(row, 9)?)),
             )?
             .collect::<rusqlite::Result<_>>()?;
 
@@ -83,6 +85,7 @@ impl Database {
         all_event_ids.sort_unstable();
         all_event_ids.dedup();
         let tags = self.tags_for_events(&all_event_ids)?;
+        let favorite_links = self.favorite_links_for_events(&all_event_ids)?;
 
         let replacements: HashMap<_, _> = replacement_events
             .into_iter()
@@ -110,6 +113,12 @@ impl Database {
                 range_start,
                 range_end,
             ));
+        }
+        for occurrence in &mut occurrences {
+            occurrence.favorite_links = favorite_links
+                .get(&occurrence.event_id)
+                .cloned()
+                .unwrap_or_default();
         }
         occurrences.sort_by(occurrence_order);
         Ok(occurrences)
@@ -176,7 +185,8 @@ impl Database {
             return Ok(Vec::new());
         }
         let sql = format!(
-            "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
+            "SELECT id, title, description, start_date, start_time, end_time, importance,
+                    recurrence_id, directory
              FROM events WHERE id IN ({})",
             sql_placeholders(ids.len())
         );
@@ -190,7 +200,8 @@ impl Database {
         Ok(self
             .connection
             .query_row(
-                "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
+                "SELECT id, title, description, start_date, start_time, end_time, importance,
+                        recurrence_id, directory
                  FROM events WHERE id = ?1",
                 [id],
                 event_from_row,
@@ -217,7 +228,8 @@ impl Database {
         Ok(self
             .connection
             .query_row(
-                "SELECT id, title, description, start_date, start_time, end_time, importance, recurrence_id
+                "SELECT id, title, description, start_date, start_time, end_time, importance,
+                        recurrence_id, directory
                  FROM events WHERE recurrence_id = ?1",
                 [recurrence_id],
                 event_from_row,
@@ -230,6 +242,7 @@ impl Database {
         event: &NewEvent,
         recurrence: Option<&NewRecurrence>,
         tags: &[String],
+        favorite_link_ids: &[FavoriteLinkId],
     ) -> StorageResult<EventId> {
         validate_event(event, recurrence)?;
         let transaction = self.connection.transaction()?;
@@ -238,6 +251,7 @@ impl Database {
             .transpose()?;
         let event_id = insert_event(&transaction, event, recurrence_id)?;
         set_event_tags_tx(&transaction, event_id, tags)?;
+        set_event_favorite_links_tx(&transaction, event_id, favorite_link_ids)?;
         transaction.commit()?;
         Ok(event_id)
     }
@@ -248,6 +262,7 @@ impl Database {
         event: &NewEvent,
         recurrence: Option<&NewRecurrence>,
         tags: &[String],
+        favorite_link_ids: &[FavoriteLinkId],
     ) -> StorageResult<()> {
         validate_event(event, recurrence)?;
         let old_recurrence_id: Option<RecurrenceId> = self
@@ -279,7 +294,7 @@ impl Database {
         let changed = transaction.execute(
             "UPDATE events SET title = ?1, description = ?2, start_date = ?3,
                  start_time = ?4, end_time = ?5, importance = ?6, recurrence_id = ?7,
-                 updated_at = ?8 WHERE id = ?9",
+                 directory = ?8, updated_at = ?9 WHERE id = ?10",
             params![
                 event.title.trim(),
                 event
@@ -291,6 +306,7 @@ impl Database {
                 time_string(event.end_time),
                 event.importance.to_db(),
                 recurrence_id,
+                event.directory.as_deref().and_then(std::path::Path::to_str),
                 now_string(),
                 event_id,
             ],
@@ -299,6 +315,7 @@ impl Database {
             return Err(invalid_input("event does not exist"));
         }
         set_event_tags_tx(&transaction, event_id, tags)?;
+        set_event_favorite_links_tx(&transaction, event_id, favorite_link_ids)?;
         transaction.commit()?;
         Ok(())
     }
@@ -388,6 +405,7 @@ impl Database {
         original_date: NaiveDate,
         replacement: &NewEvent,
         tags: &[String],
+        favorite_link_ids: &[FavoriteLinkId],
     ) -> StorageResult<EventId> {
         validate_event(replacement, None)?;
         let transaction = self.connection.transaction()?;
@@ -402,6 +420,7 @@ impl Database {
             .flatten();
         let replacement_id = insert_event(&transaction, replacement, None)?;
         set_event_tags_tx(&transaction, replacement_id, tags)?;
+        set_event_favorite_links_tx(&transaction, replacement_id, favorite_link_ids)?;
         transaction.execute(
             "INSERT INTO recurrence_exceptions(recurrence_id, original_date, kind, replacement_event_id)
              VALUES (?1, ?2, 'modified', ?3)
@@ -420,12 +439,14 @@ impl Database {
     pub fn upcoming_events(
         &self,
         now: DateTime<Local>,
+        through: Option<NaiveDate>,
         limit: usize,
         order: UpcomingOrder,
     ) -> StorageResult<UpcomingEvents> {
         let today = now.date_naive();
         let current_time = now.time();
-        let (_, range_end) = self.data_bounds(today)?;
+        let (_, available_end) = self.data_bounds(today)?;
+        let range_end = through.map_or(available_end, |end| end.min(available_end));
         let mut events = self.events_between(today, range_end)?;
         events.retain(|event| {
             event.date > today || event.start_time.is_none_or(|time| time >= current_time)
@@ -458,6 +479,20 @@ fn validate_event(event: &NewEvent, recurrence: Option<&NewRecurrence>) -> Stora
     }
     if event.start_time.is_none() && event.end_time.is_some() {
         return Err(invalid_input("event end time requires a start time"));
+    }
+    if event
+        .directory
+        .as_ref()
+        .is_some_and(|directory| !directory.is_absolute())
+    {
+        return Err(invalid_input("event directory must be an absolute path"));
+    }
+    if event
+        .directory
+        .as_ref()
+        .is_some_and(|directory| directory.to_str().is_none())
+    {
+        return Err(invalid_input("event directory must be valid UTF-8"));
     }
     if let Some(rule) = recurrence {
         if rule.interval == 0 || rule.interval > MAX_INTERVAL_WEEKS || rule.weekdays.is_empty() {
@@ -527,8 +562,8 @@ fn insert_event(
     let now = now_string();
     transaction.execute(
         "INSERT INTO events(title, description, start_date, start_time, end_time, importance,
-                            recurrence_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+                            recurrence_id, directory, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
         params![
             event.title.trim(),
             event
@@ -540,6 +575,7 @@ fn insert_event(
             time_string(event.end_time),
             event.importance.to_db(),
             recurrence_id,
+            event.directory.as_deref().and_then(std::path::Path::to_str),
             now,
         ],
     )?;

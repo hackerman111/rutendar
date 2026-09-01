@@ -6,7 +6,9 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
 };
 
-use super::widgets::{FOCUSED, KEY_BADGE, KEY_LABEL, UNFOCUSED, centered, importance_style};
+use super::widgets::{
+    FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, UNFOCUSED, centered, importance_style,
+};
 use crate::{app::App, search::SearchResult};
 
 pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
@@ -23,7 +25,7 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
 
     // Search bar
     let search_title = if app.state.agenda.searching {
-        " ▌SEARCH: ACTIVE▐ "
+        " SEARCH: ACTIVE "
     } else {
         " [ SEARCH ] "
     };
@@ -64,7 +66,7 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
                 .title(Span::styled(
                     search_title,
                     if app.state.agenda.searching {
-                        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        SELECTED
                     } else {
                         Style::new().fg(Color::DarkGray)
                     },
@@ -80,7 +82,7 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled("[f]", KEY_BADGE),
         Span::styled(" DATE:", KEY_LABEL),
         Span::styled(
-            format!(" {:?}  ", filters.date),
+            format!(" {}  ", filters.date.label()),
             Style::new().fg(Color::Cyan),
         ),
         Span::styled("[r]", KEY_BADGE),
@@ -136,17 +138,14 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         let is_cursor = index == app.state.agenda.tag_cursor;
 
         if selected {
-            tag_spans.push(Span::styled(
-                format!(" [✓ #{}] ", tag.name),
-                Style::new()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ));
+            tag_spans.push(Span::styled(format!(" ✓ #{} ", tag.name), SELECTED));
         } else if is_cursor {
             tag_spans.push(Span::styled(
-                format!(" [#{}] ", tag.name),
-                Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                format!(" #{} ", tag.name),
+                Style::new()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else {
             tag_spans.push(Span::styled(
@@ -255,6 +254,11 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
                 Cell::from(title_span),
                 Cell::from(tags_span),
             ])
+            .style(if is_row_selected {
+                sel_style
+            } else {
+                Style::default()
+            })
         })
         .collect::<Vec<_>>();
 
@@ -279,8 +283,8 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(Span::styled(
-                    format!(" ▌AGENDA // RESULTS: {total_results}▐ "),
-                    Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    format!(" AGENDA // RESULTS: {total_results} "),
+                    SELECTED,
                 ))
                 .border_style(FOCUSED),
         ),

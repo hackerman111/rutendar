@@ -7,7 +7,8 @@ use ratatui::{
 };
 
 use super::widgets::{
-    FOCUSED, KEY_BADGE, KEY_LABEL, TIME_STYLE, centered, importance_style, relative_date, tags_line,
+    FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, TIME_STYLE, centered, importance_style, relative_date,
+    tags_line,
 };
 use crate::app::App;
 
@@ -31,10 +32,7 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
         .take(capacity)
         .map(|(index, event)| {
             let is_selected = index == app.state.upcoming.selected;
-            let sel_style = Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD);
+            let sel_style = SELECTED;
             let mut line_spans = Vec::new();
 
             if is_selected {
@@ -55,7 +53,12 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 } else {
                     Style::new().fg(Color::Yellow)
                 };
-                line_spans.push(Span::styled(format!("[{}]", rel_date.trim()), badge_style));
+                let badge = if is_selected || event.date == app.state.today {
+                    format!(" {} ", rel_date.trim())
+                } else {
+                    format!("[{}]", rel_date.trim())
+                };
+                line_spans.push(Span::styled(badge, badge_style));
                 line_spans.push(if is_selected {
                     Span::styled(" ", sel_style)
                 } else {
@@ -111,18 +114,24 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 ));
             }
 
-            if let Some(link) = app
-                .state
-                .upcoming
-                .links_by_date
-                .get(&event.date)
-                .and_then(|links| links.first())
-            {
+            let attached_link = event
+                .favorite_links
+                .first()
+                .map(|link| (link.label.as_str(), link.url.as_str()))
+                .or_else(|| {
+                    app.state
+                        .upcoming
+                        .links_by_date
+                        .get(&event.date)
+                        .and_then(|links| links.first())
+                        .map(|link| (link.label.as_str(), link.url.as_str()))
+                });
+            if let Some((label, url)) = attached_link {
                 if !detail_spans.is_empty() {
                     detail_spans.push(Span::raw("  "));
                 }
                 detail_spans.push(Span::styled(
-                    format!("🔗 {} › {}", link.label, link.url),
+                    format!("🔗 {label} › {url}"),
                     if is_selected {
                         Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
                     } else {
@@ -136,10 +145,7 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
         .collect::<Vec<_>>();
 
     let title = Line::from(vec![
-        Span::styled(
-            " ▌UPCOMING // БЛИЖАЙШИЕ▐ ",
-            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" UPCOMING // БЛИЖАЙШИЕ ", SELECTED),
         Span::styled("[s]", KEY_BADGE),
         Span::styled(format!(" SORT: {:?} ", app.state.upcoming.sort), KEY_LABEL),
     ]);

@@ -5,8 +5,9 @@ use chrono::{Datelike, NaiveDate, NaiveTime, Weekday};
 use super::AppResult;
 use crate::{
     model::{
-        Event, EventId, EventOccurrence, Importance, Link, LinkId, NewEvent, NewRecurrence, Note,
-        NoteId, Recurrence, RecurrenceId, Tag, parse_date, parse_time,
+        Event, EventId, EventOccurrence, FavoriteLink, FavoriteLinkId, Importance, Link, LinkId,
+        NewEvent, NewFavoriteLink, NewRecurrence, Note, NoteId, Recurrence, RecurrenceId, Tag,
+        parse_date, parse_time,
     },
     search::{SearchFilters, SearchResult},
 };
@@ -68,6 +69,8 @@ pub enum InputMode {
     Normal,
     Editor,
     Search,
+    LinkBank,
+    LinkSearch,
     Confirm,
     Scope,
     GotoDate,
@@ -105,11 +108,26 @@ pub struct EventForm {
     pub weekdays: String,
     pub ends: String,
     pub description: String,
+    pub favorite_link_ids: Vec<FavoriteLinkId>,
+    pub favorite_links: String,
+    pub directory: String,
     pub active: usize,
 }
 
+pub type EventFormValues = (
+    NewEvent,
+    Option<NewRecurrence>,
+    Vec<String>,
+    Vec<FavoriteLinkId>,
+);
+
 impl EventForm {
-    pub const FIELD_COUNT: usize = 11;
+    pub const FIELD_COUNT: usize = 13;
+    pub const IMPORTANCE_FIELD: usize = 4;
+    pub const TAGS_FIELD: usize = 5;
+    pub const REPEAT_FIELD: usize = 6;
+    pub const LINKS_FIELD: usize = 11;
+    pub const DIRECTORY_FIELD: usize = 12;
 
     pub fn new(date: NaiveDate) -> Self {
         Self {
@@ -124,12 +142,20 @@ impl EventForm {
             weekdays: weekday_name(date.weekday()).into(),
             ends: String::new(),
             description: String::new(),
+            favorite_link_ids: Vec::new(),
+            favorite_links: String::new(),
+            directory: String::new(),
             active: 0,
         }
     }
 
-    pub fn from_event(event: &Event, tags: &[Tag], recurrence: Option<&Recurrence>) -> Self {
-        Self {
+    pub fn from_event(
+        event: &Event,
+        tags: &[Tag],
+        favorite_links: &[FavoriteLink],
+        recurrence: Option<&Recurrence>,
+    ) -> Self {
+        let mut form = Self {
             title: event.title.clone(),
             date: event.start_date.format("%d.%m.%Y").to_string(),
             start_time: event
@@ -163,8 +189,18 @@ impl EventForm {
                 .map(|date| date.format("%d.%m.%Y").to_string())
                 .unwrap_or_default(),
             description: event.description.clone().unwrap_or_default(),
+            favorite_link_ids: Vec::new(),
+            favorite_links: String::new(),
+            directory: event
+                .directory
+                .as_deref()
+                .and_then(std::path::Path::to_str)
+                .unwrap_or_default()
+                .to_owned(),
             active: 0,
-        }
+        };
+        form.set_favorite_links(favorite_links);
+        form
     }
 
     pub fn from_occurrence(event: &EventOccurrence) -> Self {
@@ -177,8 +213,9 @@ impl EventForm {
             end_time: event.end_time,
             importance: event.importance,
             recurrence_id: None,
+            directory: event.directory.clone(),
         };
-        let mut form = Self::from_event(&synthetic, &event.tags, None);
+        let mut form = Self::from_event(&synthetic, &event.tags, &event.favorite_links, None);
         form.weekly = false;
         form
     }
@@ -196,6 +233,8 @@ impl EventForm {
             ("WEEKDAYS", &self.weekdays),
             ("ENDS", &self.ends),
             ("DESCRIPTION", &self.description),
+            ("LINKS", &self.favorite_links),
+            ("DIRECTORY", &self.directory),
         ]
     }
 
@@ -210,6 +249,7 @@ impl EventForm {
             8 => self.weekdays.push(character),
             9 => self.ends.push(character),
             10 => self.description.push(character),
+            Self::DIRECTORY_FIELD => self.directory.push(character),
             _ => {}
         }
     }
@@ -225,13 +265,14 @@ impl EventForm {
             8 => _ = self.weekdays.pop(),
             9 => _ = self.ends.pop(),
             10 => _ = self.description.pop(),
+            Self::DIRECTORY_FIELD => _ = self.directory.pop(),
             _ => {}
         }
     }
 
     pub fn adjust(&mut self, forward: bool) {
         match self.active {
-            4 => {
+            Self::IMPORTANCE_FIELD => {
                 self.importance = if forward {
                     self.importance.next()
                 } else {
@@ -243,15 +284,28 @@ impl EventForm {
                     }
                 }
             }
-            6 => self.weekly = !self.weekly,
+            Self::REPEAT_FIELD => self.weekly = !self.weekly,
             _ => {}
         }
     }
 
-    pub fn values(&self) -> AppResult<(NewEvent, Option<NewRecurrence>, Vec<String>)> {
+    pub fn values(&self) -> AppResult<EventFormValues> {
         let date = parse_date(&self.date)?;
         let start_time = optional_time(&self.start_time)?;
         let end_time = optional_time(&self.end_time)?;
+        let directory = if self.directory.trim().is_empty() {
+            None
+        } else {
+            let directory = std::fs::canonicalize(self.directory.trim())?;
+            if !directory.is_dir() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "event directory is not a directory",
+                )
+                .into());
+            }
+            Some(directory)
+        };
         let event = NewEvent {
             title: self.title.trim().into(),
             description: (!self.description.trim().is_empty())
@@ -260,6 +314,7 @@ impl EventForm {
             start_time,
             end_time,
             importance: self.importance,
+            directory,
         };
         let recurrence = if self.weekly {
             let weekdays = parse_weekdays(&self.weekdays)?;
@@ -281,7 +336,16 @@ impl EventForm {
             .filter(|tag| !tag.trim_matches('#').is_empty())
             .map(str::to_owned)
             .collect();
-        Ok((event, recurrence, tags))
+        Ok((event, recurrence, tags, self.favorite_link_ids.clone()))
+    }
+
+    pub fn set_favorite_links(&mut self, links: &[FavoriteLink]) {
+        self.favorite_link_ids = links.iter().map(|link| link.id).collect();
+        self.favorite_links = links
+            .iter()
+            .map(|link| link.label.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
     }
 }
 
@@ -302,6 +366,80 @@ pub struct LinkForm {
 }
 
 #[derive(Debug, Clone)]
+pub struct FavoriteLinkForm {
+    pub label: String,
+    pub url: String,
+    pub tags: String,
+    pub description: String,
+    pub active: usize,
+}
+
+impl FavoriteLinkForm {
+    pub const FIELD_COUNT: usize = 4;
+
+    pub fn from_link(link: &FavoriteLink) -> Self {
+        Self {
+            label: link.label.clone(),
+            url: link.url.clone(),
+            tags: link.tags.clone(),
+            description: link.description.clone().unwrap_or_default(),
+            active: 0,
+        }
+    }
+
+    pub fn fields(&self) -> [(&'static str, &str); Self::FIELD_COUNT] {
+        [
+            ("LABEL", &self.label),
+            ("URL", &self.url),
+            ("TAGS", &self.tags),
+            ("DESCRIPTION", &self.description),
+        ]
+    }
+
+    pub fn push(&mut self, character: char) {
+        match self.active {
+            0 => self.label.push(character),
+            1 => self.url.push(character),
+            2 => self.tags.push(character),
+            3 => self.description.push(character),
+            _ => {}
+        }
+    }
+
+    pub fn backspace(&mut self) {
+        match self.active {
+            0 => _ = self.label.pop(),
+            1 => _ = self.url.pop(),
+            2 => _ = self.tags.pop(),
+            3 => _ = self.description.pop(),
+            _ => {}
+        }
+    }
+
+    pub fn values(&self) -> NewFavoriteLink {
+        NewFavoriteLink {
+            label: self.label.clone(),
+            url: self.url.clone(),
+            description: (!self.description.trim().is_empty())
+                .then(|| self.description.trim().to_owned()),
+            tags: self.tags.clone(),
+        }
+    }
+}
+
+impl Default for FavoriteLinkForm {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            url: "https://".into(),
+            tags: String::new(),
+            description: String::new(),
+            active: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Editor {
     Event {
         form: EventForm,
@@ -314,6 +452,10 @@ pub enum Editor {
     Link {
         form: LinkForm,
         target: Option<LinkId>,
+    },
+    FavoriteLink {
+        form: FavoriteLinkForm,
+        target: Option<FavoriteLinkId>,
     },
 }
 
@@ -347,13 +489,28 @@ pub enum ScopeOperation {
 #[derive(Debug, Clone)]
 pub enum Popup {
     Editor(Editor),
+    SaveConfirm {
+        message: String,
+        editor: Editor,
+    },
     Confirm {
         message: String,
         target: DeleteTarget,
     },
     Scope(ScopeOperation),
     GotoDate(String),
+    LinkBank,
     Help,
+}
+
+#[derive(Debug)]
+pub struct LinkBankState {
+    pub event_form: EventForm,
+    pub event_target: EventTarget,
+    pub query: String,
+    pub items: Vec<FavoriteLink>,
+    pub selected: usize,
+    pub searching: bool,
 }
 
 #[derive(Debug)]
@@ -375,6 +532,7 @@ pub struct AppState {
     pub next: Vec<EventOccurrence>,
     pub next_total: usize,
     pub tag_suggestions: Vec<Tag>,
+    pub link_bank: Option<LinkBankState>,
     pub status_message: Option<String>,
     pub loaded_range: Option<(NaiveDate, NaiveDate)>,
 }

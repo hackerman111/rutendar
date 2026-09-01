@@ -6,13 +6,14 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 
-use super::widgets::{FOCUSED, KEY_BADGE, KEY_LABEL, centered, centered_fixed};
+use super::link_bank::render_link_bank;
+use super::widgets::{FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, centered, centered_fixed};
 use crate::app::{App, Editor, Popup};
 
 pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
     match popup {
         Popup::Editor(editor) => render_editor(frame, area, app, editor),
-        Popup::Confirm { message, .. } => {
+        Popup::SaveConfirm { message, .. } | Popup::Confirm { message, .. } => {
             let popup = centered_fixed(area, 56, 7);
             frame.render_widget(Clear, popup);
             let lines = vec![
@@ -39,9 +40,10 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                     Block::default()
                         .borders(Borders::ALL)
                         .title(Span::styled(
-                            " ▌! ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ▐ ",
+                            " ! ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ ",
                             Style::new()
-                                .fg(Color::LightRed)
+                                .fg(Color::Black)
+                                .bg(Color::LightRed)
                                 .add_modifier(Modifier::BOLD),
                         ))
                         .border_style(Style::new().fg(Color::LightRed)),
@@ -79,10 +81,7 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                 Paragraph::new(lines).alignment(Alignment::Left).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(
-                            " ▌ОБЛАСТЬ ИЗМЕНЕНИЯ СЕРИИ▐ ",
-                            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                        ))
+                        .title(Span::styled(" ОБЛАСТЬ ИЗМЕНЕНИЯ СЕРИИ ", SELECTED))
                         .border_style(FOCUSED),
                 ),
                 popup,
@@ -114,29 +113,28 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                 Paragraph::new(lines).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(
-                            " ▌ПЕРЕХОД К ДАТЕ▐ ",
-                            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                        ))
+                        .title(Span::styled(" ПЕРЕХОД К ДАТЕ ", SELECTED))
                         .border_style(FOCUSED),
                 ),
                 popup,
             );
         }
+        Popup::LinkBank => render_link_bank(frame, area, app),
         Popup::Help => render_help(frame, area),
     }
 }
 
 pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) {
-    let popup = centered(area, 76, 90);
+    let popup = centered(area, 92, 90);
     frame.render_widget(Clear, popup);
     let event_fields;
     let note_fields;
     let link_fields;
+    let favorite_link_fields;
     let (title, fields, active): (&str, &[(&'static str, &str)], usize) = match editor {
         Editor::Event { form, .. } => {
             event_fields = form.fields();
-            (" ▌РЕДАКТОР: СОБЫТИЕ▐ ", &event_fields, form.active)
+            (" РЕДАКТОР: СОБЫТИЕ ", &event_fields, form.active)
         }
         Editor::Note { form, .. } => {
             note_fields = [
@@ -144,11 +142,19 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
                 ("DATE", form.date.as_str()),
                 ("BODY", form.body.as_str()),
             ];
-            (" ▌РЕДАКТОР: ЗАМЕТКА▐ ", &note_fields, form.active)
+            (" РЕДАКТОР: ЗАМЕТКА ", &note_fields, form.active)
         }
         Editor::Link { form, .. } => {
             link_fields = [("LABEL", form.label.as_str()), ("URL", form.url.as_str())];
-            (" ▌РЕДАКТОР: ССЫЛКА▐ ", &link_fields, form.active)
+            (" РЕДАКТОР: ССЫЛКА ", &link_fields, form.active)
+        }
+        Editor::FavoriteLink { form, .. } => {
+            favorite_link_fields = form.fields();
+            (
+                " РЕДАКТОР: ИЗБРАННАЯ ССЫЛКА ",
+                &favorite_link_fields,
+                form.active,
+            )
         }
     };
     let capacity = (popup.height.saturating_sub(2) / 2).max(1) as usize;
@@ -162,12 +168,16 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
         .map(|(index, (label, value))| {
             let is_active = index == active;
             let label_style = if is_active {
-                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                SELECTED
             } else {
                 Style::new().fg(Color::DarkGray)
             };
 
-            let formatted_label = format!("{label:<12}");
+            let formatted_label = if is_active {
+                format!(" {label:<12} ")
+            } else {
+                format!("[ {label:<12}]")
+            };
 
             let mut value_spans = Vec::new();
             if is_active {
@@ -184,7 +194,20 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
                             .add_modifier(Modifier::BOLD),
                     ));
                     value_spans.push(Span::styled(
-                        "  (←/→ переключить)",
+                        "  (Tab/←/→ переключить)",
+                        Style::new().fg(Color::DarkGray),
+                    ));
+                } else if label == "LINKS" {
+                    value_spans.push(Span::styled(
+                        if value.is_empty() {
+                            "(не выбраны)"
+                        } else {
+                            value
+                        },
+                        Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+                    ));
+                    value_spans.push(Span::styled(
+                        "  (Enter/Ctrl+L — банк)",
                         Style::new().fg(Color::DarkGray),
                     ));
                 } else {
@@ -204,10 +227,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
             }
 
             ListItem::new(vec![
-                Line::from(vec![Span::styled(
-                    format!("[ {formatted_label}]"),
-                    label_style,
-                )]),
+                Line::from(vec![Span::styled(formatted_label, label_style)]),
                 Line::from(value_spans),
             ])
         })
@@ -215,16 +235,20 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
 
     let mut footer_spans = vec![
         Span::styled("[Ctrl+S]", KEY_BADGE),
-        Span::styled(" СОХРАНИТЬ  ", KEY_LABEL),
-        Span::styled("[Tab/Enter]", KEY_BADGE),
-        Span::styled(" СЛЕДУЮЩЕЕ ПОЛЕ  ", KEY_LABEL),
+        Span::styled(" SAVE  ", KEY_LABEL),
+        Span::styled("[Enter]", KEY_BADGE),
+        Span::styled(" NEXT/DONE  ", KEY_LABEL),
+        Span::styled("[Tab]", KEY_BADGE),
+        Span::styled(" CHOICE  ", KEY_LABEL),
+        Span::styled("[C-L]", KEY_BADGE),
+        Span::styled(" LINKS  ", KEY_LABEL),
         Span::styled(
             "[Esc]",
             Style::new()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" ОТМЕНА", KEY_LABEL),
+        Span::styled(" BACK", KEY_LABEL),
     ];
 
     if !app.state.tag_suggestions.is_empty() {
@@ -233,13 +257,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
             Style::new().fg(Color::DarkGray),
         ));
         for tag in &app.state.tag_suggestions {
-            footer_spans.push(Span::styled(
-                format!(" [#{}] ", tag.name),
-                Style::new()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ));
+            footer_spans.push(Span::styled(format!(" #{} ", tag.name), SELECTED));
             footer_spans.push(Span::raw(" "));
         }
     }
@@ -248,10 +266,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Span::styled(
-                    title,
-                    Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                ))
+                .title(Span::styled(title, SELECTED))
                 .title_bottom(Line::from(footer_spans))
                 .border_style(FOCUSED),
         ),
@@ -260,7 +275,7 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
 }
 
 pub fn render_help(frame: &mut Frame, area: Rect) {
-    let popup = centered_fixed(area, 68, 25);
+    let popup = centered_fixed(area, 72, 29);
     frame.render_widget(Clear, popup);
 
     let rows = [
@@ -281,6 +296,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ("d  /  x", "удалить выбранный элемент"),
         ("p", "изменить важность (None / Low / Normal / High)"),
         ("o  /  y", "открыть ссылку в браузере / скопировать URL"),
+        ("c", "открыть shell в директории выбранного события"),
         ("Enter  /  Esc", "открыть / закрыть или назад"),
         ("── ПАНЕЛИ И ПОИСК ───────────────────────", ""),
         ("/", "открыть Agenda / поиск по событиям"),
@@ -297,6 +313,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ("── ОБЩИЕ ────────────────────────────────", ""),
         ("?  /  q", "закрыть справку / выйти из приложения"),
         ("Ctrl+S (в редакторе)", "сохранить изменения"),
+        ("Ctrl+L (в событии)", "открыть банк избранных ссылок"),
     ];
 
     let lines = rows
@@ -321,8 +338,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(Span::styled(
-                    " ▌СПРАВКА ПО КЛАВИШАМ // QUICK REFERENCE▐ ",
-                    Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    " СПРАВКА ПО КЛАВИШАМ // QUICK REFERENCE ",
+                    SELECTED,
                 ))
                 .border_style(FOCUSED),
         ),

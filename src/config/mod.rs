@@ -102,7 +102,7 @@ impl Config {
         if self.keys.open_link == self.keys.copy_link {
             return Err(invalid("open_link and copy_link must differ"));
         }
-        const FIXED_KEYS: &str = "qhjklgnedatpwDmY?/frisA[] ";
+        const FIXED_KEYS: &str = "qhjklgnedatpwDmYc?/frisA[] ";
         if [self.keys.open_link, self.keys.copy_link]
             .into_iter()
             .any(|key| FIXED_KEYS.contains(key))

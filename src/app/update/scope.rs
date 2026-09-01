@@ -76,6 +76,11 @@ impl App {
                 self.refresh_after_change()?;
             }
             ScopeOperation::Importance(event) => {
+                let favorite_link_ids = event
+                    .favorite_links
+                    .iter()
+                    .map(|link| link.id)
+                    .collect::<Vec<_>>();
                 let replacement = NewEvent {
                     title: event.title,
                     description: event.description,
@@ -83,6 +88,7 @@ impl App {
                     start_time: event.start_time,
                     end_time: event.end_time,
                     importance: event.importance.next(),
+                    directory: event.directory,
                 };
                 let tags = event
                     .tags
@@ -94,6 +100,7 @@ impl App {
                     event.original_date,
                     &replacement,
                     &tags,
+                    &favorite_link_ids,
                 )?;
                 self.state.popup = None;
                 self.refresh_after_change()?;
@@ -135,5 +142,11 @@ impl App {
             }
             _ => self.selected_note(),
         }
+    }
+
+    pub(super) fn selected_url(&self) -> Option<String> {
+        self.selected_event_occurrence()
+            .and_then(|event| event.favorite_links.first().map(|link| link.url.clone()))
+            .or_else(|| self.selected_link().map(|link| link.url.clone()))
     }
 }

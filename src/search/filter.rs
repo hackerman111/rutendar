@@ -1,4 +1,4 @@
-use chrono::{Duration, NaiveDate};
+use chrono::NaiveDate;
 
 use super::query::{DateFilter, ItemType, SearchQuery, SearchResult, SortBy, TagMatching};
 use crate::{
@@ -22,7 +22,6 @@ pub fn date_range(filter: DateFilter, today: NaiveDate) -> Option<(NaiveDate, Na
         DateFilter::Today => Some((today, today)),
         DateFilter::ThisWeek => Some((week_start(today), week_end(today))),
         DateFilter::ThisMonth => Some((month_start(today), month_end(today))),
-        DateFilter::Upcoming => Some((today, today + Duration::days(366))),
     }
 }
 
@@ -150,6 +149,7 @@ mod tests {
             end_time: None,
             importance: Importance::Normal,
             recurrence_id: None,
+            directory: None,
         };
         let tags = ["универ", "лекция"]
             .into_iter()

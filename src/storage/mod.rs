@@ -4,6 +4,7 @@ use crate::model::EventOccurrence;
 
 pub mod database;
 pub mod events;
+pub mod favorite_links;
 pub mod migrations;
 pub mod notes;
 pub mod tags;

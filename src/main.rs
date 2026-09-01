@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use rutendar::{app::App, config::Config, input::Keymap, storage::Database, ui};
+use rutendar::{app::App, config::Config, external, input::Keymap, storage::Database, ui};
 
 fn main() {
     if let Err(error) = run() {
@@ -22,16 +22,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut app = App::new(database, config)?;
     let mut keymap = Keymap::new(&key_config);
     let mut tui = Tui::new()?;
-    event_loop(&mut tui.terminal, &mut app, &mut keymap)
+    event_loop(&mut tui, &mut app, &mut keymap)
 }
 
-fn event_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
-    keymap: &mut Keymap,
-) -> Result<(), Box<dyn Error>> {
+fn event_loop(tui: &mut Tui, app: &mut App, keymap: &mut Keymap) -> Result<(), Box<dyn Error>> {
     loop {
-        terminal.draw(|frame| ui::render(frame, app))?;
+        tui.terminal.draw(|frame| ui::render(frame, app))?;
         app.tick();
         if event::poll(Duration::from_millis(200))?
             && let Event::Key(key) = event::read()?
@@ -40,12 +36,22 @@ fn event_loop(
             if app.update(action) {
                 return Ok(());
             }
+            if let Some(directory) = app.take_directory_request() {
+                tui.suspend()?;
+                let shell_result = external::open_shell(&directory);
+                let resume_result = tui.resume();
+                if let Err(error) = shell_result {
+                    app.report_error(error);
+                }
+                resume_result?;
+            }
         }
     }
 }
 
 struct Tui {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    active: bool,
 }
 
 impl Tui {
@@ -57,7 +63,10 @@ impl Tui {
             return Err(error.into());
         }
         match Terminal::new(CrosstermBackend::new(stdout)) {
-            Ok(terminal) => Ok(Self { terminal }),
+            Ok(terminal) => Ok(Self {
+                terminal,
+                active: true,
+            }),
             Err(error) => {
                 let mut stdout = io::stdout();
                 _ = execute!(stdout, LeaveAlternateScreen);
@@ -66,12 +75,30 @@ impl Tui {
             }
         }
     }
+
+    fn suspend(&mut self) -> Result<(), Box<dyn Error>> {
+        disable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        self.terminal.show_cursor()?;
+        self.active = false;
+        Ok(())
+    }
+
+    fn resume(&mut self) -> Result<(), Box<dyn Error>> {
+        execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
+        self.active = true;
+        enable_raw_mode()?;
+        self.terminal.clear()?;
+        Ok(())
+    }
 }
 
 impl Drop for Tui {
     fn drop(&mut self) {
         _ = disable_raw_mode();
-        _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        if self.active {
+            _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        }
         _ = self.terminal.show_cursor();
     }
 }

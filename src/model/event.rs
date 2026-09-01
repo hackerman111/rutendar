@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 use chrono::{NaiveDate, NaiveTime};
 
@@ -71,6 +71,7 @@ pub struct Event {
     pub end_time: Option<NaiveTime>,
     pub importance: Importance,
     pub recurrence_id: Option<RecurrenceId>,
+    pub directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,4 +82,5 @@ pub struct NewEvent {
     pub start_time: Option<NaiveTime>,
     pub end_time: Option<NaiveTime>,
     pub importance: Importance,
+    pub directory: Option<PathBuf>,
 }

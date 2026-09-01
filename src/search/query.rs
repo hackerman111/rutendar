@@ -24,7 +24,17 @@ pub enum DateFilter {
     Today,
     ThisWeek,
     ThisMonth,
-    Upcoming,
+}
+
+impl DateFilter {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::All => "ALL",
+            Self::Today => "DAY",
+            Self::ThisWeek => "WEEK",
+            Self::ThisMonth => "MONTH",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

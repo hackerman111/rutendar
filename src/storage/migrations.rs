@@ -74,6 +74,29 @@ CREATE INDEX IF NOT EXISTS idx_tags_normalized ON tags(normalized_name);
 
 const VERSION_2: &str = "CREATE INDEX IF NOT EXISTS idx_exceptions_replacement ON recurrence_exceptions(replacement_event_id);";
 
+const VERSION_3: &str = r#"
+ALTER TABLE events ADD COLUMN directory TEXT;
+
+CREATE TABLE favorite_links (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL CHECK (length(trim(label)) > 0),
+    url TEXT NOT NULL CHECK (length(trim(url)) > 0),
+    description TEXT,
+    tags TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE event_favorite_links (
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    favorite_link_id INTEGER NOT NULL REFERENCES favorite_links(id) ON DELETE CASCADE,
+    PRIMARY KEY (event_id, favorite_link_id)
+);
+
+CREATE INDEX idx_event_favorite_links_link
+    ON event_favorite_links(favorite_link_id);
+"#;
+
 pub(super) fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
@@ -88,7 +111,7 @@ pub(super) fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         [],
         |row| row.get(0),
     )?;
-    for (version, sql) in [(1, VERSION_1), (2, VERSION_2)] {
+    for (version, sql) in [(1, VERSION_1), (2, VERSION_2), (3, VERSION_3)] {
         if version <= current {
             continue;
         }

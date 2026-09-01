@@ -1,4 +1,5 @@
 pub mod event;
+pub mod favorite_link;
 pub mod link;
 pub mod note;
 pub mod occurrence;
@@ -7,6 +8,7 @@ pub mod tag;
 use chrono::{NaiveDate, NaiveTime};
 
 pub use event::{Event, EventId, Importance, NewEvent, UpcomingOrder};
+pub use favorite_link::{FavoriteLink, FavoriteLinkId, NewFavoriteLink};
 pub use link::{Link, LinkId, NewLink};
 pub use note::{NewNote, Note, NoteId};
 pub use occurrence::EventOccurrence;

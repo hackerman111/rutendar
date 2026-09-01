@@ -30,6 +30,8 @@ impl Keymap {
         match mode {
             InputMode::Editor => self.editor(key),
             InputMode::Search => self.search(key),
+            InputMode::LinkBank => self.link_bank(key),
+            InputMode::LinkSearch => self.search(key),
             InputMode::GotoDate => self.goto_date(key),
             InputMode::Confirm => match key.code {
                 KeyCode::Enter | KeyCode::Char('y' | 'Y' | 'д' | 'Д' | 'x' | 'X') => {
@@ -59,18 +61,34 @@ impl Keymap {
                 KeyCode::Char('j') | KeyCode::Char('n') => Action::NextField,
                 KeyCode::Char('k') | KeyCode::Char('p') => Action::PreviousField,
                 KeyCode::Char('h') => Action::AdjustLeft,
-                KeyCode::Char('l') => Action::AdjustRight,
+                KeyCode::Char('l') => Action::OpenLinkBank,
                 _ => Action::Noop,
             };
         }
         match key.code {
             KeyCode::Esc => Action::Back,
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Down => Action::NextField,
+            KeyCode::Enter => Action::EnterField,
+            KeyCode::Tab => Action::TabField,
+            KeyCode::Down => Action::NextField,
             KeyCode::BackTab | KeyCode::Up => Action::PreviousField,
             KeyCode::Left => Action::AdjustLeft,
             KeyCode::Right => Action::AdjustRight,
             KeyCode::Backspace => Action::Backspace,
             KeyCode::Char(character) => Action::Input(character),
+            _ => Action::Noop,
+        }
+    }
+
+    fn link_bank(&self, key: KeyEvent) -> Action {
+        match key.code {
+            KeyCode::Esc => Action::Back,
+            KeyCode::Char('k') | KeyCode::Up => Action::MoveUp,
+            KeyCode::Char('j') | KeyCode::Down => Action::MoveDown,
+            KeyCode::Enter | KeyCode::Char(' ') => Action::ToggleFavoriteLink,
+            KeyCode::Char('/') => Action::StartLinkSearch,
+            KeyCode::Char('a') => Action::AddFavoriteLink,
+            KeyCode::Char('e') => Action::EditFavoriteLink,
+            KeyCode::Char(character) if character == self.open_link => Action::OpenFavoriteLink,
             _ => Action::Noop,
         }
     }
@@ -144,6 +162,7 @@ impl Keymap {
             KeyCode::Char('m') => Action::SwitchView(View::Month),
             KeyCode::Char('Y') => Action::SwitchView(View::Year),
             KeyCode::Char('?') => Action::Help,
+            KeyCode::Char('c') => Action::OpenDirectory,
             KeyCode::Tab => Action::NextView,
             KeyCode::BackTab => Action::PreviousView,
             KeyCode::Char('f') => Action::CycleDateFilter,
@@ -248,6 +267,28 @@ mod tests {
         assert!(matches!(
             keymap.map(key('/'), InputMode::Normal),
             Action::OpenAgenda
+        ));
+        assert!(matches!(
+            keymap.map(key('c'), InputMode::Normal),
+            Action::OpenDirectory
+        ));
+        assert!(matches!(
+            keymap.map(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                InputMode::Editor
+            ),
+            Action::EnterField
+        ));
+        assert!(matches!(
+            keymap.map(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                InputMode::Editor
+            ),
+            Action::TabField
+        ));
+        assert!(matches!(
+            keymap.map(key('a'), InputMode::LinkBank),
+            Action::AddFavoriteLink
         ));
     }
 }

@@ -7,8 +7,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, UNFOCUSED, month_name};
-use crate::app::App;
+use super::widgets::{SELECTED, TODAY, TODAY_BADGE, calendar_border_style, month_name};
+use crate::{app::App, model::Importance};
 
 pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
@@ -22,12 +22,14 @@ pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
             .split(rows[row]);
         for column in 0..3 {
             let month = (row * 3 + column + 1) as u32;
-            let events = app
+            let (events, has_high_importance) = app
                 .state
                 .occurrences
                 .iter()
                 .filter(|event| event.date.month() == month)
-                .count();
+                .fold((0, false), |(count, important), event| {
+                    (count + 1, important || event.importance == Importance::High)
+                });
             let notes = app
                 .state
                 .notes
@@ -40,13 +42,13 @@ pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
 
             let title_line = if selected {
                 Line::from(vec![Span::styled(
-                    format!(" ▌{:02} · {}▐ ", month, month_name(month)),
+                    format!(" {:02} · {} ", month, month_name(month)),
                     SELECTED,
                 )])
             } else if is_today_month {
                 Line::from(vec![
                     Span::styled(
-                        format!(" [{:02} · {}] ", month, month_name(month)),
+                        format!(" {:02} · {} ", month, month_name(month)),
                         TODAY_BADGE,
                     ),
                     Span::styled(" TODAY ", TODAY),
@@ -83,13 +85,7 @@ pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
                 ]),
             ];
 
-            let border_style = if selected {
-                FOCUSED
-            } else if is_today_month {
-                TODAY
-            } else {
-                UNFOCUSED
-            };
+            let border_style = calendar_border_style(selected, is_today_month, has_high_importance);
 
             frame.render_widget(
                 Paragraph::new(lines).alignment(Alignment::Left).block(
