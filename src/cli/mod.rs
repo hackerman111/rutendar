@@ -3,6 +3,7 @@ pub mod export;
 pub mod format;
 pub mod import;
 pub mod list;
+pub mod task;
 
 use std::path::PathBuf;
 
@@ -11,6 +12,7 @@ pub use export::run_export;
 pub use format::format_event_card;
 pub use import::run_import;
 pub use list::{Period, run_list};
+pub use task::{TaskAddArgs, run_task_add, run_task_list, run_task_menu, run_task_toggle};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CliCommand {
@@ -18,6 +20,10 @@ pub enum CliCommand {
     Add(AddArgs),
     Export(Option<PathBuf>),
     Import { path: PathBuf, force: bool },
+    TaskMenu,
+    TaskAdd(TaskAddArgs),
+    TaskToggle(i64),
+    TaskList(Option<String>),
     Help,
 }
 
@@ -55,6 +61,46 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
             };
             Ok(Some(CliCommand::Import { path, force }))
         }
+        "--task" | "-t" | "task" => {
+            let sub = args.get(1).map(|s| s.as_str());
+            match sub {
+                Some("--add" | "-a" | "add") => {
+                    let task_args = TaskAddArgs::parse_from(&args[2..]);
+                    Ok(Some(CliCommand::TaskAdd(task_args)))
+                }
+                Some("--toggle" | "--done" | "done" | "toggle") => {
+                    let id = args
+                        .get(2)
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .ok_or("укажите числовой ID задания: rutendar --task --done <ID>")?;
+                    Ok(Some(CliCommand::TaskToggle(id)))
+                }
+                Some("--list" | "-l" | "list") => {
+                    let filter = args.get(2).cloned();
+                    Ok(Some(CliCommand::TaskList(filter)))
+                }
+                None => Ok(Some(CliCommand::TaskMenu)),
+                Some(_) => {
+                    let task_args = TaskAddArgs::parse_from(&args[1..]);
+                    Ok(Some(CliCommand::TaskAdd(task_args)))
+                }
+            }
+        }
+        "--task-add" => {
+            let task_args = TaskAddArgs::parse_from(&args[1..]);
+            Ok(Some(CliCommand::TaskAdd(task_args)))
+        }
+        "--task-toggle" | "--task-done" => {
+            let id = args
+                .get(1)
+                .and_then(|s| s.parse::<i64>().ok())
+                .ok_or("укажите числовой ID задания: rutendar --task-toggle <ID>")?;
+            Ok(Some(CliCommand::TaskToggle(id)))
+        }
+        "--task-list" => {
+            let filter = args.get(1).cloned();
+            Ok(Some(CliCommand::TaskList(filter)))
+        }
         "--help" | "-h" | "help" => Ok(Some(CliCommand::Help)),
         unknown if unknown.starts_with('-') => Err(format!(
             "неизвестный флаг: '{unknown}'. Используйте --help для справки."
@@ -79,6 +125,10 @@ pub fn print_help() {
         "  rutendar --list [day|week|month]  Интерактивный просмотр и поиск ближайших событий (-l)"
     );
     println!("  rutendar --add [опции]            Добавление нового события из терминала (-a)");
+    println!("  rutendar --task [опции]           Интерактивное меню заданий (To-Do) (-t)");
+    println!("  rutendar --task-add [опции]       Добавление нового задания");
+    println!("  rutendar --task-toggle <ID>       Переключение статуса задания (--task-done)");
+    println!("  rutendar --task-list [today|all]  Вывод списка заданий в терминал");
     println!("  rutendar --export [файл]          Экспорт базы данных в файл (-e)");
     println!("  rutendar --import <файл> [-f]     Импорт базы данных из файла (-i)");
     println!("  rutendar --help                   Вывод этой справки (-h)\n");
@@ -90,6 +140,11 @@ pub fn print_help() {
     println!("  --tags <ТЕГИ>               Теги через запятую или пробел (#универ)");
     println!("  --dir <ПАПКА>               Путь к директории на диске");
     println!("  --desc <ОПИСАНИЕ>           Описание события\n");
+    println!("ОПЦИИ ДЛЯ --task-add:");
+    println!("  --title, -t <НАЗВАНИЕ>      Название задания");
+    println!("  --date, -d <ДАТА>           Срок (DD.MM.YYYY, today, tomorrow)");
+    println!("  --importance, -i <ВАЖНОСТЬ> Важность (none, low, normal, high)");
+    println!("  --desc <ОПИСАНИЕ>           Описание задания\n");
 }
 
 #[cfg(test)]
@@ -152,7 +207,64 @@ mod tests {
             Ok(Some(CliCommand::Help))
         );
 
+        assert_eq!(
+            parse_cli_command(&["--task".into()]),
+            Ok(Some(CliCommand::TaskMenu))
+        );
+        assert_eq!(
+            parse_cli_command(&["-t".into()]),
+            Ok(Some(CliCommand::TaskMenu))
+        );
+
+        let task_add = parse_cli_command(&[
+            "--task-add".into(),
+            "Купить молоко".into(),
+            "--date".into(),
+            "today".into(),
+        ])
+        .unwrap();
+        if let Some(CliCommand::TaskAdd(args)) = task_add {
+            assert_eq!(args.title.as_deref(), Some("Купить молоко"));
+            assert_eq!(args.date.as_deref(), Some("today"));
+        } else {
+            panic!("expected TaskAdd");
+        }
+
+        assert_eq!(
+            parse_cli_command(&["--task-toggle".into(), "42".into()]),
+            Ok(Some(CliCommand::TaskToggle(42)))
+        );
+        assert_eq!(
+            parse_cli_command(&["--task-list".into(), "done".into()]),
+            Ok(Some(CliCommand::TaskList(Some("done".into()))))
+        );
+
         assert!(parse_cli_command(&["--unknown".into()]).is_err());
+    }
+
+    #[test]
+    fn test_task_cli_flow() {
+        let db = crate::storage::Database::in_memory().unwrap();
+        let add_args = TaskAddArgs {
+            title: Some("CLI Задание".into()),
+            date: Some("today".into()),
+            desc: Some("Описание".into()),
+            importance: Some("high".into()),
+        };
+        run_task_add(&db, &add_args).unwrap();
+
+        let tasks = db.all_tasks(crate::model::TaskFilter::Active).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "CLI Задание");
+        assert_eq!(tasks[0].importance, crate::model::Importance::High);
+
+        run_task_toggle(&db, tasks[0].id).unwrap();
+        let active = db.all_tasks(crate::model::TaskFilter::Active).unwrap();
+        assert!(active.is_empty());
+        let done = db.all_tasks(crate::model::TaskFilter::Done).unwrap();
+        assert_eq!(done.len(), 1);
+
+        run_task_list(&db, Some("done")).unwrap();
     }
 
     #[test]

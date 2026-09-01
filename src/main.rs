@@ -49,6 +49,22 @@ fn run() -> Result<(), Box<dyn Error>> {
             rutendar::cli::CliCommand::Import { path, force } => {
                 rutendar::cli::run_import(&paths.database, &path, force)?;
             }
+            rutendar::cli::CliCommand::TaskMenu => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_task_menu(&database)?;
+            }
+            rutendar::cli::CliCommand::TaskAdd(task_args) => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_task_add(&database, &task_args)?;
+            }
+            rutendar::cli::CliCommand::TaskToggle(id) => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_task_toggle(&database, id)?;
+            }
+            rutendar::cli::CliCommand::TaskList(filter) => {
+                let database = Database::open(&paths.database)?;
+                rutendar::cli::run_task_list(&database, filter.as_deref())?;
+            }
             rutendar::cli::CliCommand::Help => {
                 rutendar::cli::print_help();
             }
