@@ -16,10 +16,16 @@ pub fn render_inline(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
     let header_line = build_header(app);
     let footer_line = build_footer(app);
 
+    let border_color = if app.pending_delete.is_some() {
+        Color::LightRed
+    } else {
+        Color::Cyan
+    };
+
     let outer_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(border_color))
         .title(header_line)
         .title_bottom(footer_line);
 
@@ -517,6 +523,40 @@ fn render_event_line(event: &crate::model::EventOccurrence, is_sel: bool) -> Lin
 }
 
 fn build_footer(app: &InlineApp) -> Line<'static> {
+    if let Some(del) = &app.pending_delete {
+        let (kind, title) = match del {
+            crate::cli::inline::state::PendingDelete::Event { title, .. } => {
+                ("событие", title.as_str())
+            }
+            crate::cli::inline::state::PendingDelete::Task { title, .. } => {
+                ("задачу", title.as_str())
+            }
+        };
+        return Line::from(vec![
+            Span::styled(
+                " ⚠ ",
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("Удалить {kind} \"{title}\"? "),
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[y] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Да · ", Style::default().fg(Color::White)),
+            Span::styled("[Любая клавиша] ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Отмена ", Style::default().fg(Color::DarkGray)),
+        ]);
+    }
+
     match app.tab {
         InlineTab::Day => Line::from(vec![
             Span::styled(
@@ -532,21 +572,28 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "[p] ",
+                "[e] ",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Сводка дня · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "[a] ",
+                "[a/A] ",
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Добавить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Доб · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[x] ",
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[Space] ",
                 Style::default()
@@ -576,14 +623,28 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[e] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[a] ",
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Добавить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Доб · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[x] ",
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[Tab] ",
                 Style::default()
@@ -597,7 +658,7 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Полный TUI ", Style::default().fg(Color::DarkGray)),
+            Span::styled("TUI ", Style::default().fg(Color::DarkGray)),
         ]),
         InlineTab::Search => Line::from(vec![
             Span::styled(
@@ -613,14 +674,28 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[e] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[x] ",
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[Esc] ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Очистить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Сброс · ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[Tab] ",
                 Style::default()

@@ -11,7 +11,10 @@ use crossterm::{
 };
 use ratatui::{Terminal, TerminalOptions, Viewport, backend::CrosstermBackend};
 
-pub use add_form::{AddFormApp, AddFormField, render_add_form, run_add_form_interactive};
+pub use add_form::{
+    AddFormApp, AddFormField, TaskFormApp, TaskFormField, render_add_form, render_task_form,
+    run_add_form_interactive, run_add_task_interactive, run_edit_form_interactive,
+};
 pub use render::render_inline;
 pub use state::{InlineApp, InlineOutcome, InlineTab, SelectedDayItem};
 
@@ -67,6 +70,19 @@ pub fn run_inline(
                 break;
             }
 
+            // If delete confirmation is pending:
+            if app.pending_delete.is_some() {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        app.confirm_delete(database)?;
+                    }
+                    _ => {
+                        app.cancel_delete();
+                    }
+                }
+                continue;
+            }
+
             if app.tab == InlineTab::Search {
                 match (key.code, key.modifiers) {
                     (KeyCode::Esc, _) => {
@@ -83,7 +99,21 @@ pub fn run_inline(
                         card_to_print = Some(app.search_results[app.selected_idx].clone());
                         break;
                     }
+                    (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                        if let Some(event) = app.selected_event() {
+                            let event_to_edit = event.clone();
+                            terminal.clear()?;
+                            disable_raw_mode()?;
 
+                            let _ = run_edit_form_interactive(database, &event_to_edit);
+
+                            enable_raw_mode()?;
+                            app.reload_all(database)?;
+                        }
+                    }
+                    (KeyCode::Char('x') | KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                        app.request_delete();
+                    }
                     (KeyCode::Tab, KeyModifiers::NONE) => {
                         app.cycle_tab();
                     }
@@ -176,14 +206,39 @@ pub fn run_inline(
                         };
                         break;
                     }
-                    (
-                        KeyCode::Char('a') | KeyCode::Char('+'),
-                        KeyModifiers::NONE | KeyModifiers::SHIFT,
-                    ) => {
+                    (KeyCode::Char('e'), KeyModifiers::NONE) => {
+                        if let Some(event) = app.selected_event() {
+                            let event_to_edit = event.clone();
+                            terminal.clear()?;
+                            disable_raw_mode()?;
+
+                            let _ = run_edit_form_interactive(database, &event_to_edit);
+
+                            enable_raw_mode()?;
+                            app.reload_all(database)?;
+                        }
+                    }
+                    (KeyCode::Char('x'), KeyModifiers::NONE) => {
+                        app.request_delete();
+                    }
+                    (KeyCode::Char('A'), _) | (KeyCode::Char('+'), _) => {
                         terminal.clear()?;
                         disable_raw_mode()?;
 
-                        let _ = run_add_form_interactive(database, app.current_date);
+                        let _ = run_add_task_interactive(database, app.current_date);
+
+                        enable_raw_mode()?;
+                        app.reload_all(database)?;
+                    }
+                    (KeyCode::Char('a'), KeyModifiers::NONE) => {
+                        terminal.clear()?;
+                        disable_raw_mode()?;
+
+                        if app.is_task_selected() {
+                            let _ = run_add_task_interactive(database, app.current_date);
+                        } else {
+                            let _ = run_add_form_interactive(database, app.current_date);
+                        }
 
                         enable_raw_mode()?;
                         app.reload_all(database)?;

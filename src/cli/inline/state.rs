@@ -45,6 +45,12 @@ pub enum SelectedDayItem<'a> {
     Task(&'a Task),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingDelete {
+    Event { id: i64, title: String },
+    Task { id: i64, title: String },
+}
+
 pub struct InlineApp {
     pub tab: InlineTab,
     pub today: NaiveDate,
@@ -56,6 +62,7 @@ pub struct InlineApp {
     pub week_events: Vec<EventOccurrence>,
     pub all_search_events: Vec<EventOccurrence>,
     pub search_results: Vec<EventOccurrence>,
+    pub pending_delete: Option<PendingDelete>,
 }
 
 impl InlineApp {
@@ -71,6 +78,7 @@ impl InlineApp {
             week_events: Vec::new(),
             all_search_events: Vec::new(),
             search_results: Vec::new(),
+            pending_delete: None,
         }
     }
 
@@ -110,6 +118,7 @@ impl InlineApp {
     }
 
     pub fn next_day(&mut self, db: &Database) -> Result<(), Box<dyn Error>> {
+        self.pending_delete = None;
         self.current_date += Duration::days(1);
         self.selected_idx = 0;
         self.reload_day(db)?;
@@ -118,6 +127,7 @@ impl InlineApp {
     }
 
     pub fn prev_day(&mut self, db: &Database) -> Result<(), Box<dyn Error>> {
+        self.pending_delete = None;
         self.current_date -= Duration::days(1);
         self.selected_idx = 0;
         self.reload_day(db)?;
@@ -126,6 +136,7 @@ impl InlineApp {
     }
 
     pub fn jump_to_today(&mut self, db: &Database) -> Result<(), Box<dyn Error>> {
+        self.pending_delete = None;
         self.current_date = self.today;
         self.selected_idx = 0;
         self.reload_day(db)?;
@@ -162,6 +173,7 @@ impl InlineApp {
     }
 
     pub fn switch_tab(&mut self, tab: InlineTab) {
+        self.pending_delete = None;
         self.tab = tab;
         self.selected_idx = 0;
     }
@@ -184,6 +196,84 @@ impl InlineApp {
             let task_idx = self.selected_idx - self.day_events.len();
             self.day_tasks.get(task_idx).map(SelectedDayItem::Task)
         }
+    }
+
+    pub fn selected_event(&self) -> Option<&EventOccurrence> {
+        match self.tab {
+            InlineTab::Day => {
+                if self.selected_idx < self.day_events.len() {
+                    self.day_events.get(self.selected_idx)
+                } else {
+                    None
+                }
+            }
+            InlineTab::Week => self.week_events.get(self.selected_idx),
+            InlineTab::Search => self.search_results.get(self.selected_idx),
+        }
+    }
+
+    pub fn is_task_selected(&self) -> bool {
+        self.tab == InlineTab::Day
+            && self.selected_idx >= self.day_events.len()
+            && !self.day_tasks.is_empty()
+    }
+
+    pub fn request_delete(&mut self) {
+        match self.tab {
+            InlineTab::Day => match self.selected_day_item() {
+                Some(SelectedDayItem::Event(ev)) => {
+                    self.pending_delete = Some(PendingDelete::Event {
+                        id: ev.event_id,
+                        title: ev.title.clone(),
+                    });
+                }
+                Some(SelectedDayItem::Task(t)) => {
+                    self.pending_delete = Some(PendingDelete::Task {
+                        id: t.id,
+                        title: t.title.clone(),
+                    });
+                }
+                None => {}
+            },
+            InlineTab::Week => {
+                if let Some(ev) = self.week_events.get(self.selected_idx) {
+                    self.pending_delete = Some(PendingDelete::Event {
+                        id: ev.event_id,
+                        title: ev.title.clone(),
+                    });
+                }
+            }
+            InlineTab::Search => {
+                if let Some(ev) = self.search_results.get(self.selected_idx) {
+                    self.pending_delete = Some(PendingDelete::Event {
+                        id: ev.event_id,
+                        title: ev.title.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn cancel_delete(&mut self) {
+        self.pending_delete = None;
+    }
+
+    pub fn confirm_delete(&mut self, db: &mut Database) -> Result<bool, Box<dyn Error>> {
+        let deleted = match self.pending_delete.take() {
+            Some(PendingDelete::Event { id, .. }) => {
+                db.delete_event(id)?;
+                self.reload_all(db)?;
+                true
+            }
+            Some(PendingDelete::Task { id, .. }) => {
+                db.delete_task(id)?;
+                self.reload_all(db)?;
+                true
+            }
+            None => false,
+        };
+        self.clamp_selection();
+        Ok(deleted)
     }
 
     pub fn toggle_selected_task(&mut self, db: &Database) -> Result<bool, Box<dyn Error>> {
@@ -345,5 +435,45 @@ mod tests {
 
         app.search_clear();
         assert_eq!(app.search_results.len(), 2);
+    }
+
+    #[test]
+    fn test_inline_app_deletion() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
+        let mut db = setup_test_db(today);
+
+        let mut app = InlineApp::new(today, InlineTab::Day);
+        app.reload_all(&db).unwrap();
+
+        // 1. Delete event with cancel
+        assert_eq!(app.selected_idx, 0);
+        app.request_delete();
+        assert!(matches!(
+            app.pending_delete,
+            Some(PendingDelete::Event { .. })
+        ));
+
+        app.cancel_delete();
+        assert!(app.pending_delete.is_none());
+        assert_eq!(app.day_events.len(), 1);
+
+        // 2. Delete event with confirm
+        app.request_delete();
+        let deleted = app.confirm_delete(&mut db).unwrap();
+        assert!(deleted);
+        assert_eq!(app.day_events.len(), 0);
+        assert_eq!(app.day_tasks.len(), 1);
+
+        // 3. Delete task with confirm
+        assert_eq!(app.selected_idx, 0); // now task is at 0
+        app.request_delete();
+        assert!(matches!(
+            app.pending_delete,
+            Some(PendingDelete::Task { .. })
+        ));
+
+        let deleted_task = app.confirm_delete(&mut db).unwrap();
+        assert!(deleted_task);
+        assert_eq!(app.day_tasks.len(), 0);
     }
 }
