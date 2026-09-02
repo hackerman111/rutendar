@@ -2,6 +2,7 @@ pub mod add;
 pub mod export;
 pub mod format;
 pub mod import;
+pub mod inline;
 pub mod list;
 pub mod note_export;
 pub mod task;
