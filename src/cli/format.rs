@@ -3,7 +3,7 @@ use std::fmt::Write;
 use chrono::{Datelike, Weekday};
 use unicode_width::UnicodeWidthStr;
 
-use crate::model::{EventOccurrence, Importance};
+use crate::model::{EventOccurrence, Importance, Task};
 
 fn strip_ansi(s: &str) -> String {
     let mut clean = String::with_capacity(s.len());
@@ -180,7 +180,114 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
     out
 }
 
+/// Format a full day summary into a beautiful closed terminal box with events and tasks.
+pub fn format_day_summary(
+    date: chrono::NaiveDate,
+    events: &[EventOccurrence],
+    tasks: &[Task],
+) -> String {
+    let mut out = String::new();
+
+    let weekday_str = match date.weekday() {
+        Weekday::Mon => "Понедельник",
+        Weekday::Tue => "Вторник",
+        Weekday::Wed => "Среда",
+        Weekday::Thu => "Четверг",
+        Weekday::Fri => "Пятница",
+        Weekday::Sat => "Суббота",
+        Weekday::Sun => "Воскресенье",
+    };
+
+    let title_badge = format!("📅 {}, {}", weekday_str, date.format("%d.%m.%Y"));
+    let badge_vis_width = visible_width(&title_badge);
+
+    let card_width = 72usize;
+    let inner_width = card_width - 4;
+
+    let divider = format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2));
+
+    // Top border: ╭── 📅 <badge> ───────...──╮
+    let prefix_width = 4; // "╭── "
+    let suffix_margin = 1; // " " after badge
+    let corner_width = 1; // "╮"
+    let used_width = prefix_width + badge_vis_width + suffix_margin + corner_width;
+    let remaining_dashes = card_width.saturating_sub(used_width);
+
+    let _ = writeln!(
+        out,
+        "\x1b[36m╭──\x1b[0m \x1b[1m{title_badge}\x1b[0m \x1b[36m{}╮\x1b[0m",
+        "─".repeat(remaining_dashes)
+    );
+
+    // Header for schedule
+    push_card_line(&mut out, "\x1b[1;36mРАСПИСАНИЕ И СОБЫТИЯ\x1b[0m", inner_width);
+
+    if events.is_empty() {
+        push_card_line(&mut out, "  \x1b[90m(нет событий)\x1b[0m", inner_width);
+    } else {
+        for event in events {
+            let imp_indicator = match event.importance {
+                Importance::High => "\x1b[1;31m!\x1b[0m ",
+                Importance::Normal => "\x1b[36m•\x1b[0m ",
+                Importance::Low => "\x1b[34m·\x1b[0m ",
+                Importance::None => "  ",
+            };
+
+            let time_str = match (event.start_time, event.end_time) {
+                (Some(start), Some(end)) => {
+                    format!("\x1b[33m{} — {}\x1b[0m", start.format("%H:%M"), end.format("%H:%M"))
+                }
+                (Some(start), None) => format!("\x1b[33m{}\x1b[0m", start.format("%H:%M")),
+                _ => "\x1b[90mВесь день\x1b[0m".to_string(),
+            };
+
+            let tags_str = if event.tags.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " {}",
+                    event
+                        .tags
+                        .iter()
+                        .map(|t| format!("\x1b[36m#{}\x1b[0m", t.name))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            };
+
+            let event_line = format!("  {imp_indicator}{time_str}  \x1b[1m{}\x1b[0m{tags_str}", event.title);
+            push_card_line(&mut out, &event_line, inner_width);
+        }
+    }
+
+    if !tasks.is_empty() {
+        let _ = writeln!(out, "{divider}");
+        push_card_line(&mut out, "\x1b[1;36mЗАДАЧИ НА ДЕНЬ\x1b[0m", inner_width);
+        for task in tasks {
+            let status_mark = if task.is_done {
+                "\x1b[32m[x]\x1b[0m"
+            } else {
+                "\x1b[90m[ ]\x1b[0m"
+            };
+
+            let imp_str = match task.importance {
+                Importance::High => " \x1b[1;31m!\x1b[0m",
+                _ => "",
+            };
+
+            let task_line = format!("  {status_mark} {}{imp_str}", task.title);
+            push_card_line(&mut out, &task_line, inner_width);
+        }
+    }
+
+    // Bottom border
+    let bottom = format!("\x1b[36m╰{}╯\x1b[0m", "─".repeat(card_width - 2));
+    let _ = write!(out, "{bottom}");
+    out
+}
+
 #[cfg(test)]
+
 mod tests {
     use std::path::PathBuf;
 
@@ -243,4 +350,63 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_format_day_summary_renders_boxed_schedule_and_tasks() {
+        use crate::model::Task;
+
+        let date = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
+        let event = EventOccurrence {
+            event_id: 1,
+            recurrence_id: None,
+            original_date: date,
+            date,
+            start_time: Some(NaiveTime::from_hms_opt(10, 0, 0).unwrap()),
+            end_time: Some(NaiveTime::from_hms_opt(11, 30, 0).unwrap()),
+            title: "Лекция по физике".into(),
+            description: None,
+            importance: Importance::High,
+            tags: vec![Tag {
+                id: 1,
+                name: "физика".into(),
+                normalized_name: "физика".into(),
+            }],
+            favorite_links: Vec::new(),
+            directory: None,
+            is_recurring: false,
+        };
+        let task = Task {
+            id: 1,
+            title: "Сдать отчет".into(),
+            description: None,
+            date: Some(date),
+            is_done: false,
+            importance: Importance::Normal,
+            completed_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let summary = format_day_summary(date, &[event], &[task]);
+        assert!(summary.contains("03.09.2026"));
+        assert!(summary.contains("Лекция по физике"));
+        assert!(summary.contains("10:00 — 11:30"));
+        assert!(summary.contains("#физика"));
+        assert!(summary.contains("Сдать отчет"));
+        assert!(summary.contains("[ ]"));
+
+        // Verify closed borders
+        assert!(summary.contains('╭') && summary.contains('╮'));
+        assert!(summary.contains('╰') && summary.contains('╯'));
+
+        for line in summary.lines() {
+            let clean = strip_ansi(line);
+            assert_eq!(
+                clean.width(),
+                72,
+                "line visual width should be 72: '{clean}'"
+            );
+        }
+    }
 }
+

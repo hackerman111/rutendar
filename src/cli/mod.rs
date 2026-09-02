@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 pub use add::{AddArgs, run_add};
 pub use export::run_export;
-pub use format::format_event_card;
+pub use format::{format_day_summary, format_event_card};
 pub use import::run_import;
 pub use list::{Period, run_list};
 pub use note_export::{NotesPeriod, run_notes_export, run_notes_menu};
