@@ -78,12 +78,11 @@ pub fn run_inline(
                     (KeyCode::Backspace, _) => {
                         app.search_pop_char();
                     }
-                    (KeyCode::Enter, _) => {
-                        if !app.search_results.is_empty() {
-                            card_to_print = Some(app.search_results[app.selected_idx].clone());
-                            break;
-                        }
+                    (KeyCode::Enter, _) if !app.search_results.is_empty() => {
+                        card_to_print = Some(app.search_results[app.selected_idx].clone());
+                        break;
                     }
+
                     (KeyCode::Tab, KeyModifiers::NONE) => {
                         app.cycle_tab();
                     }

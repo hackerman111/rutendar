@@ -220,7 +220,11 @@ pub fn format_day_summary(
     );
 
     // Header for schedule
-    push_card_line(&mut out, "\x1b[1;36mРАСПИСАНИЕ И СОБЫТИЯ\x1b[0m", inner_width);
+    push_card_line(
+        &mut out,
+        "\x1b[1;36mРАСПИСАНИЕ И СОБЫТИЯ\x1b[0m",
+        inner_width,
+    );
 
     if events.is_empty() {
         push_card_line(&mut out, "  \x1b[90m(нет событий)\x1b[0m", inner_width);
@@ -235,7 +239,11 @@ pub fn format_day_summary(
 
             let time_str = match (event.start_time, event.end_time) {
                 (Some(start), Some(end)) => {
-                    format!("\x1b[33m{} — {}\x1b[0m", start.format("%H:%M"), end.format("%H:%M"))
+                    format!(
+                        "\x1b[33m{} — {}\x1b[0m",
+                        start.format("%H:%M"),
+                        end.format("%H:%M")
+                    )
                 }
                 (Some(start), None) => format!("\x1b[33m{}\x1b[0m", start.format("%H:%M")),
                 _ => "\x1b[90mВесь день\x1b[0m".to_string(),
@@ -255,7 +263,10 @@ pub fn format_day_summary(
                 )
             };
 
-            let event_line = format!("  {imp_indicator}{time_str}  \x1b[1m{}\x1b[0m{tags_str}", event.title);
+            let event_line = format!(
+                "  {imp_indicator}{time_str}  \x1b[1m{}\x1b[0m{tags_str}",
+                event.title
+            );
             push_card_line(&mut out, &event_line, inner_width);
         }
     }
@@ -287,7 +298,6 @@ pub fn format_day_summary(
 }
 
 #[cfg(test)]
-
 mod tests {
     use std::path::PathBuf;
 
@@ -409,4 +419,3 @@ mod tests {
         }
     }
 }
-

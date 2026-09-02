@@ -143,11 +143,7 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             Line::from(vec![
                 Span::styled("Неделя: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!(
-                        "{} — {}",
-                        monday.format("%d.%m"),
-                        sunday.format("%d.%m.%Y")
-                    ),
+                    format!("{} — {}", monday.format("%d.%m"), sunday.format("%d.%m.%Y")),
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
@@ -256,9 +252,17 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                             _ => Span::raw(""),
                         };
 
-                        let mut spans = vec![marker, checkbox, Span::styled(&task.title, title_style), imp_span];
+                        let mut spans = vec![
+                            marker,
+                            checkbox,
+                            Span::styled(&task.title, title_style),
+                            imp_span,
+                        ];
                         if is_sel && !task.is_done {
-                            spans.push(Span::styled(" (Space: выполнено)", Style::default().fg(Color::DarkGray)));
+                            spans.push(Span::styled(
+                                " (Space: выполнено)",
+                                Style::default().fg(Color::DarkGray),
+                            ));
                         }
 
                         let line = if is_sel {
@@ -335,7 +339,8 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
                         lines.push(
-                            Line::from(line_spans).style(Style::default().bg(Color::Rgb(20, 30, 45))),
+                            Line::from(line_spans)
+                                .style(Style::default().bg(Color::Rgb(20, 30, 45))),
                         );
                     } else {
                         lines.push(Line::from(line_spans));
@@ -397,7 +402,8 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
                         lines.push(
-                            Line::from(line_spans).style(Style::default().bg(Color::Rgb(20, 30, 45))),
+                            Line::from(line_spans)
+                                .style(Style::default().bg(Color::Rgb(20, 30, 45))),
                         );
                     } else {
                         lines.push(Line::from(line_spans));

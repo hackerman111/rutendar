@@ -258,7 +258,6 @@ pub fn prompt_create_event(
     Ok(Some(occurrence))
 }
 
-
 fn prompt_interactive(
     database: &Database,
     today: NaiveDate,

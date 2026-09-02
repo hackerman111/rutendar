@@ -101,7 +101,6 @@ impl App {
         self.refresh_calendar()
     }
 
-
     pub(crate) fn view_range(&self) -> (NaiveDate, NaiveDate) {
         match self.state.active_view {
             View::Week => (

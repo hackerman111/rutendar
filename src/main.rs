@@ -78,11 +78,20 @@ fn run() -> Result<(), Box<dyn Error>> {
             rutendar::cli::print_help();
             Ok(())
         }
-        None
-        | Some(rutendar::cli::CliCommand::Inline(period))
+        Some(rutendar::cli::CliCommand::Inline(period))
         | Some(rutendar::cli::CliCommand::List(period)) => {
             let mut database = Database::open(&paths.database)?;
             let outcome = rutendar::cli::run_inline(&mut database, &config, period)?;
+            match outcome {
+                rutendar::cli::InlineOutcome::Exit => Ok(()),
+                rutendar::cli::InlineOutcome::OpenFullTui { initial_date } => {
+                    run_fullscreen_tui(database, config, initial_date)
+                }
+            }
+        }
+        None => {
+            let mut database = Database::open(&paths.database)?;
+            let outcome = rutendar::cli::run_inline(&mut database, &config, None)?;
             match outcome {
                 rutendar::cli::InlineOutcome::Exit => Ok(()),
                 rutendar::cli::InlineOutcome::OpenFullTui { initial_date } => {
@@ -107,7 +116,6 @@ fn run_fullscreen_tui(
     let mut tui = Tui::new()?;
     event_loop(&mut tui, &mut app, &mut keymap)
 }
-
 
 fn event_loop(tui: &mut Tui, app: &mut App, keymap: &mut Keymap) -> Result<(), Box<dyn Error>> {
     loop {
