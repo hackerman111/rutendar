@@ -11,7 +11,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use crate::{
@@ -19,9 +19,8 @@ use crate::{
     completion,
     model::{EventOccurrence, Importance, NewEvent, NewTask, Tag},
     storage::Database,
+    ui::Theme,
 };
-
-const BG_SELECTED: Color = Color::Rgb(24, 34, 52);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddFormField {
@@ -75,6 +74,7 @@ pub struct AddFormApp {
     pub suggestions: Vec<String>,
     pub suggestion_idx: usize,
     pub is_edit_mode: bool,
+    pub theme: Theme,
 }
 
 impl AddFormApp {
@@ -94,7 +94,13 @@ impl AddFormApp {
             suggestions: Vec::new(),
             suggestion_idx: 0,
             is_edit_mode: false,
+            theme: Theme::default(),
         }
+    }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     pub fn from_occurrence(occurrence: &EventOccurrence) -> Self {
@@ -130,6 +136,7 @@ impl AddFormApp {
             suggestions: Vec::new(),
             suggestion_idx: 0,
             is_edit_mode: true,
+            theme: Theme::default(),
         }
     }
 
@@ -343,66 +350,42 @@ impl AddFormApp {
 
 pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
     let mode_title = if app.is_edit_mode {
-        "✏️ Редактирование события "
+        format!("{}Редактирование события ", app.theme.edit_icon())
     } else {
-        "➕ Новое событие "
+        format!("{}Новое событие ", app.theme.add_icon())
+    };
+
+    let sep = if app.theme == Theme::Plain {
+        "- "
+    } else {
+        "─ "
     };
 
     let title_line = Line::from(vec![
-        Span::styled(
-            " rutendar ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("─ ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            mode_title,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" rutendar ", app.theme.key_badge_style()),
+        Span::styled(sep, app.theme.inactive_tab_style()),
+        Span::styled(mode_title, app.theme.title_style(true, false)),
         Span::styled(
             "(Enter: Сохранить · Esc: Отмена) ",
-            Style::default().fg(Color::DarkGray),
+            app.theme.inactive_tab_style(),
         ),
     ]);
 
     let footer_line = Line::from(vec![
-        Span::styled(
-            " [Tab/↓/↑] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Поля · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[←/→] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Важность · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[Enter] ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Сохранить · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[Esc] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Отмена ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" [Tab/↓/↑] ", app.theme.key_badge_style()),
+        Span::styled("Поля · ", app.theme.inactive_tab_style()),
+        Span::styled("[←/→] ", app.theme.key_badge_style()),
+        Span::styled("Важность · ", app.theme.inactive_tab_style()),
+        Span::styled("[Enter] ", app.theme.key_badge_style()),
+        Span::styled("Сохранить · ", app.theme.inactive_tab_style()),
+        Span::styled("[Esc] ", app.theme.key_badge_style()),
+        Span::styled("Отмена ", app.theme.inactive_tab_style()),
     ]);
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_type(app.theme.border_type())
+        .border_style(Style::default().fg(app.theme.border_color(app.is_error)))
         .title(title_line)
         .title_bottom(footer_line);
 
@@ -413,48 +396,61 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
         return;
     }
 
+    let divider = if app.theme == Theme::Plain {
+        " -----------------------------------------------------------------------------------"
+    } else {
+        " ───────────────────────────────────────────────────────────────────────────────────"
+    };
+
     let mut lines = vec![
         render_field_line(
             "📌 Название:    ",
             &app.title,
             app.active_field == AddFormField::Title,
             "начните вводить название события...",
+            app.theme,
         ),
         render_field_line(
             "📅 Дата:        ",
             &app.date,
             app.active_field == AddFormField::Date,
             "DD.MM.YYYY, today, tomorrow",
+            app.theme,
         ),
         render_field_line(
             "⏰ Время:       ",
             &app.time,
             app.active_field == AddFormField::Time,
             "HH:MM или HH:MM-HH:MM (пусто — весь день)",
+            app.theme,
         ),
-        render_importance_line(app.importance, app.active_field == AddFormField::Importance),
+        render_importance_line(
+            app.importance,
+            app.active_field == AddFormField::Importance,
+            app.theme,
+        ),
         render_field_line(
             "🏷  Теги:        ",
             &app.tags,
             app.active_field == AddFormField::Tags,
             "#универ #работа (через пробел)",
+            app.theme,
         ),
         render_field_line(
             "📁 Директория:  ",
             &app.directory,
             app.active_field == AddFormField::Directory,
             "~/путь к директории проекта",
+            app.theme,
         ),
         render_field_line(
             "📝 Описание:    ",
             &app.description,
             app.active_field == AddFormField::Description,
             "дополнительные заметки и детали...",
+            app.theme,
         ),
-        Line::from(Span::styled(
-            " ───────────────────────────────────────────────────────────────────────────────────",
-            Style::default().fg(Color::DarkGray),
-        )),
+        Line::from(Span::styled(divider, app.theme.inactive_tab_style())),
     ];
 
     if let Some(msg) = &app.status_message {
@@ -470,21 +466,15 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
             Span::styled(msg, style),
         ]));
     } else if !app.suggestions.is_empty() {
-        let mut spans = vec![Span::styled(
-            "  💡 Варианты: ",
-            Style::default().fg(Color::Yellow),
-        )];
+        let mut spans = vec![Span::styled("  💡 Варианты: ", app.theme.key_badge_style())];
         for s in &app.suggestions {
-            spans.push(Span::styled(
-                format!("{s}  "),
-                Style::default().fg(Color::Cyan),
-            ));
+            spans.push(Span::styled(format!("{s}  "), app.theme.tag_style()));
         }
         lines.push(Line::from(spans));
     } else {
         lines.push(Line::from(Span::styled(
             "  ℹ  Нажмите Tab / ↓ для перехода по полям, Enter — сохранить событие",
-            Style::default().fg(Color::DarkGray),
+            app.theme.inactive_tab_style(),
         )));
     }
 
@@ -496,39 +486,27 @@ fn render_field_line<'a>(
     val: &'a str,
     is_active: bool,
     placeholder: &'a str,
+    theme: Theme,
 ) -> Line<'a> {
-    let pointer = if is_active {
-        Span::styled(
-            " ▸ ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        Span::raw("   ")
-    };
-
+    let pointer = theme.cursor_marker(is_active);
     let label_style = if is_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
+        theme.key_badge_style()
     } else {
-        Style::default().fg(Color::White)
+        theme.title_style(false, false)
     };
 
     let val_span = if val.is_empty() {
-        Span::styled(placeholder, Style::default().fg(Color::DarkGray))
+        Span::styled(placeholder, theme.inactive_tab_style())
     } else {
-        Span::styled(
-            val,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )
+        Span::styled(val, theme.title_style(is_active, false))
     };
 
     let cursor = if is_active {
-        Span::styled("█", Style::default().fg(Color::Cyan))
+        if theme == Theme::Plain {
+            Span::styled("_", theme.key_badge_style())
+        } else {
+            Span::styled("█", theme.key_badge_style())
+        }
     } else {
         Span::raw("")
     };
@@ -536,53 +514,35 @@ fn render_field_line<'a>(
     let spans = vec![pointer, Span::styled(label, label_style), val_span, cursor];
 
     if is_active {
-        Line::from(spans).style(Style::default().bg(BG_SELECTED))
+        Line::from(spans).style(theme.selection_style())
     } else {
         Line::from(spans)
     }
 }
 
-fn render_importance_line(current: Importance, is_active: bool) -> Line<'static> {
-    let pointer = if is_active {
-        Span::styled(
-            " ▸ ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        Span::raw("   ")
-    };
-
+fn render_importance_line(current: Importance, is_active: bool, theme: Theme) -> Line<'static> {
+    let pointer = theme.cursor_marker(is_active);
     let label_style = if is_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
+        theme.key_badge_style()
     } else {
-        Style::default().fg(Color::White)
+        theme.title_style(false, false)
     };
 
-    let pill = |imp: Importance, title: &'static str, color: Color| {
+    let pill = |imp: Importance, title: &'static str| {
         if current == imp {
-            Span::styled(
-                format!(" [ {title} ] "),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(color)
-                    .add_modifier(Modifier::BOLD),
-            )
+            Span::styled(format!(" [ {title} ] "), theme.active_tab_style())
         } else {
-            Span::styled(format!("  {title}  "), Style::default().fg(Color::DarkGray))
+            Span::styled(format!("  {title}  "), theme.inactive_tab_style())
         }
     };
 
-    let none_pill = pill(Importance::None, "нет", Color::DarkGray);
-    let low_pill = pill(Importance::Low, "низкая", Color::Blue);
-    let norm_pill = pill(Importance::Normal, "● обычная", Color::Cyan);
-    let high_pill = pill(Importance::High, "▲ высокая", Color::LightRed);
+    let none_pill = pill(Importance::None, "нет");
+    let low_pill = pill(Importance::Low, "низкая");
+    let norm_pill = pill(Importance::Normal, "обычная");
+    let high_pill = pill(Importance::High, "высокая");
 
     let hint = if is_active {
-        Span::styled(" (←/→)", Style::default().fg(Color::DarkGray))
+        Span::styled(" (←/→)", theme.inactive_tab_style())
     } else {
         Span::raw("")
     };
@@ -601,7 +561,7 @@ fn render_importance_line(current: Importance, is_active: bool) -> Line<'static>
     ];
 
     if is_active {
-        Line::from(spans).style(Style::default().bg(BG_SELECTED))
+        Line::from(spans).style(theme.selection_style())
     } else {
         Line::from(spans)
     }
@@ -610,8 +570,9 @@ fn render_importance_line(current: Importance, is_active: bool) -> Line<'static>
 pub fn run_add_form_interactive(
     database: &mut Database,
     default_date: NaiveDate,
+    theme: Theme,
 ) -> Result<Option<EventOccurrence>, Box<dyn Error>> {
-    let mut app = AddFormApp::new(default_date);
+    let mut app = AddFormApp::new(default_date).with_theme(theme);
 
     enable_raw_mode()?;
     let stdout = io::stdout();
@@ -661,8 +622,9 @@ pub fn run_add_form_interactive(
 pub fn run_edit_form_interactive(
     database: &mut Database,
     occurrence: &EventOccurrence,
+    theme: Theme,
 ) -> Result<bool, Box<dyn Error>> {
-    let mut app = AddFormApp::from_occurrence(occurrence);
+    let mut app = AddFormApp::from_occurrence(occurrence).with_theme(theme);
 
     enable_raw_mode()?;
     let stdout = io::stdout();
@@ -750,6 +712,7 @@ pub struct TaskFormApp {
     pub description: String,
     pub status_message: Option<String>,
     pub is_error: bool,
+    pub theme: Theme,
 }
 
 impl TaskFormApp {
@@ -763,7 +726,13 @@ impl TaskFormApp {
             description: String::new(),
             status_message: None,
             is_error: false,
+            theme: Theme::default(),
         }
+    }
+
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
@@ -860,61 +829,38 @@ impl TaskFormApp {
 }
 
 pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
+    let mode_title = format!("{}Новая задача (TODO) ", app.theme.task_icon());
+    let sep = if app.theme == Theme::Plain {
+        "- "
+    } else {
+        "─ "
+    };
+
     let title_line = Line::from(vec![
-        Span::styled(
-            " rutendar ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("─ ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "☑️ Новая задача (TODO) ",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" rutendar ", app.theme.key_badge_style()),
+        Span::styled(sep, app.theme.inactive_tab_style()),
+        Span::styled(mode_title, app.theme.title_style(true, false)),
         Span::styled(
             "(Enter: Сохранить · Esc: Отмена) ",
-            Style::default().fg(Color::DarkGray),
+            app.theme.inactive_tab_style(),
         ),
     ]);
 
     let footer_line = Line::from(vec![
-        Span::styled(
-            " [Tab/↓/↑] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Поля · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[←/→] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Важность · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[Enter] ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Сохранить · ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            "[Esc] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("Отмена ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" [Tab/↓/↑] ", app.theme.key_badge_style()),
+        Span::styled("Поля · ", app.theme.inactive_tab_style()),
+        Span::styled("[←/→] ", app.theme.key_badge_style()),
+        Span::styled("Важность · ", app.theme.inactive_tab_style()),
+        Span::styled("[Enter] ", app.theme.key_badge_style()),
+        Span::styled("Сохранить · ", app.theme.inactive_tab_style()),
+        Span::styled("[Esc] ", app.theme.key_badge_style()),
+        Span::styled("Отмена ", app.theme.inactive_tab_style()),
     ]);
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_type(app.theme.border_type())
+        .border_style(Style::default().fg(app.theme.border_color(app.is_error)))
         .title(title_line)
         .title_bottom(footer_line);
 
@@ -925,33 +871,40 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
         return;
     }
 
+    let divider = if app.theme == Theme::Plain {
+        " -----------------------------------------------------------------------------------"
+    } else {
+        " ───────────────────────────────────────────────────────────────────────────────────"
+    };
+
     let mut lines = vec![
         render_field_line(
             "📌 Название задачи: ",
             &app.title,
             app.active_field == TaskFormField::Title,
             "кратко суть задачи...",
+            app.theme,
         ),
         render_field_line(
             "📅 Срок (дата):     ",
             &app.date,
             app.active_field == TaskFormField::Date,
             "DD.MM.YYYY, today, tomorrow (или пусто)",
+            app.theme,
         ),
         render_importance_line(
             app.importance,
             app.active_field == TaskFormField::Importance,
+            app.theme,
         ),
         render_field_line(
             "📝 Описание:        ",
             &app.description,
             app.active_field == TaskFormField::Description,
             "дополнительные заметки к задаче...",
+            app.theme,
         ),
-        Line::from(Span::styled(
-            " ───────────────────────────────────────────────────────────────────────────────────",
-            Style::default().fg(Color::DarkGray),
-        )),
+        Line::from(Span::styled(divider, app.theme.inactive_tab_style())),
     ];
 
     if let Some(msg) = &app.status_message {
@@ -969,7 +922,7 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
     } else {
         lines.push(Line::from(Span::styled(
             "  ℹ  Нажмите Tab / ↓ для перехода по полям, Enter — сохранить задачу",
-            Style::default().fg(Color::DarkGray),
+            app.theme.inactive_tab_style(),
         )));
     }
 
@@ -979,8 +932,9 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
 pub fn run_add_task_interactive(
     database: &mut Database,
     default_date: NaiveDate,
+    theme: Theme,
 ) -> Result<bool, Box<dyn Error>> {
-    let mut app = TaskFormApp::new(default_date);
+    let mut app = TaskFormApp::new(default_date).with_theme(theme);
 
     enable_raw_mode()?;
     let stdout = io::stdout();
@@ -1092,7 +1046,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
 
         let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
-        let app = AddFormApp::new(today);
+        let app = AddFormApp::new(today).with_theme(Theme::Plain);
         terminal
             .draw(|frame| {
                 render_add_form(frame, frame.area(), &app);
@@ -1103,7 +1057,7 @@ mod tests {
         let rendered_text = format!("{:?}", buffer);
         assert!(rendered_text.contains("Новое событие"));
 
-        let task_app = TaskFormApp::new(today);
+        let task_app = TaskFormApp::new(today).with_theme(Theme::Plain);
         terminal
             .draw(|frame| {
                 render_task_form(frame, frame.area(), &task_app);

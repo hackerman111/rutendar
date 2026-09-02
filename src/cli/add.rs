@@ -104,9 +104,11 @@ pub fn run_add(database: &mut Database, args: &AddArgs) -> Result<(), Box<dyn Er
     let today = Local::now().date_naive();
 
     if args.title.is_none() {
-        if let Some(occurrence) =
-            crate::cli::inline::add_form::run_add_form_interactive(database, today)?
-        {
+        if let Some(occurrence) = crate::cli::inline::add_form::run_add_form_interactive(
+            database,
+            today,
+            crate::ui::Theme::default(),
+        )? {
             println!("\x1b[1;32m✓ Событие успешно создано!\x1b[0m\n");
             println!("{}", format_event_card(&occurrence));
         }
@@ -175,7 +177,11 @@ pub fn prompt_create_event(
     database: &mut Database,
     default_date: NaiveDate,
 ) -> Result<Option<EventOccurrence>, Box<dyn Error>> {
-    crate::cli::inline::add_form::run_add_form_interactive(database, default_date)
+    crate::cli::inline::add_form::run_add_form_interactive(
+        database,
+        default_date,
+        crate::ui::Theme::default(),
+    )
 }
 
 #[cfg(test)]

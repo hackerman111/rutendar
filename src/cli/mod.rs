@@ -269,12 +269,43 @@ fn parse_notes_export_args(args: &[String]) -> Result<CliCommand, String> {
     })
 }
 
+pub fn extract_theme_arg(args: &mut Vec<String>) -> Option<crate::ui::Theme> {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--theme" || args[i] == "-T" {
+            args.remove(i);
+            if i < args.len() {
+                let val = args.remove(i);
+                return match val.to_lowercase().as_str() {
+                    "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Plain),
+                    "light" => Some(crate::ui::Theme::Light),
+                    "neo" | "dark" => Some(crate::ui::Theme::Neo),
+                    _ => None,
+                };
+            }
+        } else if args[i].starts_with("--theme=") {
+            let item = args.remove(i);
+            let stripped = &item["--theme=".len()..];
+            return match stripped.to_lowercase().as_str() {
+                "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Plain),
+                "light" => Some(crate::ui::Theme::Light),
+                "neo" | "dark" => Some(crate::ui::Theme::Neo),
+                _ => None,
+            };
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
 pub fn print_help() {
     println!("\x1b[1;36mRutendar\x1b[0m — локальный терминальный календарь\n");
     println!("ИСПОЛЬЗОВАНИЕ:");
     println!("  rutendar                          Интерактивный inline-календарь (Сегодня)");
     println!("  rutendar --full, --tui            Запуск полноэкранного TUI календаря");
     println!("  rutendar --inline [day|week]      Запуск inline-календаря");
+    println!("  --theme <neo|light|plain>         Тема оформления (-T)");
 
     println!(
         "  rutendar --list [day|week|month]  Интерактивный просмотр и поиск ближайших событий (-l)"
@@ -596,5 +627,24 @@ mod tests {
         assert!(content.contains("CLI Заметка"));
         assert!(content.contains("Содержимое заметки"));
         let _ = std::fs::remove_file(&temp_file);
+    }
+
+    #[test]
+    fn test_extract_theme_arg() {
+        let mut args1 = vec!["--theme".into(), "plain".into(), "--full".into()];
+        assert_eq!(extract_theme_arg(&mut args1), Some(crate::ui::Theme::Plain));
+        assert_eq!(args1, vec!["--full"]);
+
+        let mut args2 = vec!["-T".into(), "light".into()];
+        assert_eq!(extract_theme_arg(&mut args2), Some(crate::ui::Theme::Light));
+        assert!(args2.is_empty());
+
+        let mut args3 = vec!["--theme=neo".into()];
+        assert_eq!(extract_theme_arg(&mut args3), Some(crate::ui::Theme::Neo));
+        assert!(args3.is_empty());
+
+        let mut args4 = vec!["--unknown".into()];
+        assert_eq!(extract_theme_arg(&mut args4), None);
+        assert_eq!(args4, vec!["--unknown"]);
     }
 }

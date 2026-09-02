@@ -63,6 +63,7 @@ pub struct InlineApp {
     pub all_search_events: Vec<EventOccurrence>,
     pub search_results: Vec<EventOccurrence>,
     pub pending_delete: Option<PendingDelete>,
+    pub theme: crate::ui::Theme,
 }
 
 impl InlineApp {
@@ -79,7 +80,17 @@ impl InlineApp {
             all_search_events: Vec::new(),
             search_results: Vec::new(),
             pending_delete: None,
+            theme: crate::ui::Theme::default(),
         }
+    }
+
+    pub fn with_theme(mut self, theme: crate::ui::Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    pub fn cycle_theme(&mut self) {
+        self.theme = self.theme.cycle();
     }
 
     pub fn reload_all(&mut self, db: &Database) -> Result<(), Box<dyn Error>> {
@@ -475,5 +486,21 @@ mod tests {
         let deleted_task = app.confirm_delete(&mut db).unwrap();
         assert!(deleted_task);
         assert_eq!(app.day_tasks.len(), 0);
+    }
+
+    #[test]
+    fn test_inline_app_theme_cycling() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
+        let mut app = InlineApp::new(today, InlineTab::Day).with_theme(crate::ui::Theme::Neo);
+        assert_eq!(app.theme, crate::ui::Theme::Neo);
+
+        app.cycle_theme();
+        assert_eq!(app.theme, crate::ui::Theme::Light);
+
+        app.cycle_theme();
+        assert_eq!(app.theme, crate::ui::Theme::Plain);
+
+        app.cycle_theme();
+        assert_eq!(app.theme, crate::ui::Theme::Neo);
     }
 }

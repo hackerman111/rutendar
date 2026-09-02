@@ -4,27 +4,21 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use super::state::{InlineApp, InlineTab};
-use crate::model::Importance;
-
-const BG_SELECTED: Color = Color::Rgb(24, 34, 52);
+use crate::ui::Theme;
 
 pub fn render_inline(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
     let header_line = build_header(app);
     let footer_line = build_footer(app);
 
-    let border_color = if app.pending_delete.is_some() {
-        Color::LightRed
-    } else {
-        Color::Cyan
-    };
+    let border_color = app.theme.border_color(app.pending_delete.is_some());
 
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(app.theme.border_type())
         .border_style(Style::default().fg(border_color))
         .title(header_line)
         .title_bottom(footer_line);
@@ -49,18 +43,10 @@ pub fn render_inline(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
 }
 
 fn build_header(app: &InlineApp) -> Line<'static> {
-    let brand = Span::styled(
-        " rutendar ",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    );
+    let brand = Span::styled(" rutendar ", app.theme.key_badge_style());
 
-    let active_tab_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-    let inactive_tab_style = Style::default().fg(Color::DarkGray);
+    let active_tab_style = app.theme.active_tab_style();
+    let inactive_tab_style = app.theme.inactive_tab_style();
 
     let tab_day = if app.tab == InlineTab::Day {
         Span::styled(" [ 1 ДЕНЬ ] ", active_tab_style)
@@ -88,21 +74,39 @@ fn build_header(app: &InlineApp) -> Line<'static> {
         Weekday::Sun => "Вс",
     };
 
-    let today_banner = format!(" 📅 {}, {} ", weekday_short, app.today.format("%d.%m"));
+    let today_banner = format!(
+        " {} {}, {} ",
+        app.theme.date_icon(),
+        weekday_short,
+        app.today.format("%d.%m")
+    );
+
+    let sep = if app.theme == Theme::Plain {
+        "- "
+    } else {
+        "─ "
+    };
+    let sep_end = if app.theme == Theme::Plain {
+        " -"
+    } else {
+        " ─"
+    };
+
+    let theme_label = format!("[m: {}]", app.theme.name());
 
     Line::from(vec![
         brand,
-        Span::styled("─ ", Style::default().fg(Color::DarkGray)),
+        Span::styled(sep, inactive_tab_style),
         tab_day,
         Span::raw(" "),
         tab_week,
         Span::raw(" "),
         tab_search,
-        Span::styled(" ─", Style::default().fg(Color::DarkGray)),
-        Span::styled(today_banner, Style::default().fg(Color::White)),
+        Span::styled(sep_end, inactive_tab_style),
+        Span::styled(today_banner, app.theme.title_style(false, false)),
         Span::styled(
-            "(F: Полный TUI · q: Выход) ",
-            Style::default().fg(Color::DarkGray),
+            format!("(F: TUI · {theme_label} · q: Выход) "),
+            inactive_tab_style,
         ),
     ])
 }
@@ -129,42 +133,33 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                 }
             };
 
+            let (arrow_l, arrow_r) = if app.theme == Theme::Plain {
+                ("<- ", " ->")
+            } else {
+                ("← ", " →")
+            };
+
             Line::from(vec![
                 Span::raw(" "),
-                Span::styled("📅 ", Style::default().fg(Color::Cyan)),
-                Span::styled(
-                    "← ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(app.theme.date_icon(), app.theme.key_badge_style()),
+                Span::styled(arrow_l, app.theme.key_badge_style()),
                 Span::styled(
                     format!("{} ({})", app.current_date.format("%d.%m.%Y"), day_label),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
+                    app.theme.time_style(),
                 ),
-                Span::styled(
-                    " →",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(arrow_r, app.theme.key_badge_style()),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
                 Span::styled(
                     format!("{} событий", app.day_events.len()),
-                    Style::default().fg(Color::White),
+                    app.theme.title_style(false, false),
                 ),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
                 Span::styled(
                     format!("{} задач", app.day_tasks.len()),
-                    Style::default().fg(Color::White),
+                    app.theme.title_style(false, false),
                 ),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    "[←/→: день · t: сегодня]",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
+                Span::styled("[←/→: день · t: сегодня]", app.theme.inactive_tab_style()),
             ])
         }
         InlineTab::Week => {
@@ -173,7 +168,7 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             let sunday = monday + Duration::days(6);
             Line::from(vec![
                 Span::raw(" "),
-                Span::styled("📅 ", Style::default().fg(Color::Cyan)),
+                Span::styled(app.theme.date_icon(), app.theme.key_badge_style()),
                 Span::styled(
                     format!(
                         "Неделя {} ({} — {})",
@@ -181,14 +176,12 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         monday.format("%d.%m"),
                         sunday.format("%d.%m.%Y")
                     ),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
+                    app.theme.time_style(),
                 ),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
                 Span::styled(
                     format!("{} событий за неделю", app.week_events.len()),
-                    Style::default().fg(Color::White),
+                    app.theme.title_style(false, false),
                 ),
             ])
         }
@@ -196,29 +189,30 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             let query_display = if app.query.is_empty() {
                 Span::styled(
                     "введите текст для поиска...",
-                    Style::default().fg(Color::DarkGray),
+                    app.theme.inactive_tab_style(),
                 )
             } else {
-                Span::styled(
-                    &app.query,
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                )
+                Span::styled(&app.query, app.theme.title_style(true, false))
+            };
+
+            let cursor_sym = if app.theme == Theme::Plain {
+                "_"
+            } else {
+                "█"
             };
 
             Line::from(vec![
                 Span::raw(" "),
-                Span::styled("🔍 ", Style::default().fg(Color::Yellow)),
+                Span::styled(app.theme.search_icon(), app.theme.key_badge_style()),
                 query_display,
-                Span::styled("█", Style::default().fg(Color::Cyan)),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(cursor_sym, app.theme.key_badge_style()),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
                 Span::styled(
                     format!("Найдено: {}", app.search_results.len()),
-                    Style::default().fg(Color::White),
+                    app.theme.title_style(false, false),
                 ),
-                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("(Esc: стереть)", Style::default().fg(Color::DarkGray)),
+                Span::styled("  │  ", app.theme.inactive_tab_style()),
+                Span::styled("(Esc: стереть)", app.theme.inactive_tab_style()),
             ])
         }
     };
@@ -237,62 +231,33 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             if app.day_events.is_empty() && app.day_tasks.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "   (нет событий и задач на этот день)",
-                    Style::default().fg(Color::DarkGray),
+                    app.theme.inactive_tab_style(),
                 )));
             } else {
                 // Render events
                 for (i, event) in app.day_events.iter().enumerate() {
                     let is_sel = i == selected;
-                    lines.push(render_event_line(event, is_sel));
+                    lines.push(render_event_line(event, is_sel, app.theme));
                 }
 
                 // Render tasks section
                 if !app.day_tasks.is_empty() {
+                    let task_divider = if app.theme == Theme::Plain {
+                        "  -- Задачи -------------------------------------------------------------"
+                    } else {
+                        "  ── Задачи ─────────────────────────────────────────────────────────────"
+                    };
                     lines.push(Line::from(Span::styled(
-                        "  ── Задачи ─────────────────────────────────────────────────────────────",
-                        Style::default().fg(Color::DarkGray),
+                        task_divider,
+                        app.theme.inactive_tab_style(),
                     )));
 
                     for (j, task) in app.day_tasks.iter().enumerate() {
                         let is_sel = (app.day_events.len() + j) == selected;
-                        let marker = if is_sel {
-                            Span::styled(
-                                " ▸ ",
-                                Style::default()
-                                    .fg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                        } else {
-                            Span::raw("   ")
-                        };
-
-                        let checkbox = if task.is_done {
-                            Span::styled("✔ [x] ", Style::default().fg(Color::Green))
-                        } else {
-                            Span::styled("☐ [ ] ", Style::default().fg(Color::DarkGray))
-                        };
-
-                        let title_style = if task.is_done {
-                            Style::default()
-                                .fg(Color::DarkGray)
-                                .add_modifier(Modifier::CROSSED_OUT)
-                        } else if is_sel {
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default().fg(Color::White)
-                        };
-
-                        let imp_span = match task.importance {
-                            Importance::High => Span::styled(
-                                " ▲ ",
-                                Style::default()
-                                    .fg(Color::LightRed)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            _ => Span::raw(""),
-                        };
+                        let marker = app.theme.cursor_marker(is_sel);
+                        let checkbox = app.theme.task_checkbox_span(task.is_done);
+                        let title_style = app.theme.title_style(is_sel, task.is_done);
+                        let imp_span = app.theme.importance_span(task.importance);
 
                         let mut spans = vec![
                             marker,
@@ -303,12 +268,12 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         if is_sel && !task.is_done {
                             spans.push(Span::styled(
                                 " (Space: выполнено)",
-                                Style::default().fg(Color::DarkGray),
+                                app.theme.inactive_tab_style(),
                             ));
                         }
 
                         let line = if is_sel {
-                            Line::from(spans).style(Style::default().bg(BG_SELECTED))
+                            Line::from(spans).style(app.theme.selection_style())
                         } else {
                             Line::from(spans)
                         };
@@ -321,21 +286,12 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             if app.week_events.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "   (нет событий на этой неделе)",
-                    Style::default().fg(Color::DarkGray),
+                    app.theme.inactive_tab_style(),
                 )));
             } else {
                 for (i, event) in app.week_events.iter().enumerate() {
                     let is_sel = i == selected;
-                    let marker = if is_sel {
-                        Span::styled(
-                            " ▸ ",
-                            Style::default()
-                                .fg(Color::Cyan)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                    } else {
-                        Span::raw("   ")
-                    };
+                    let marker = app.theme.cursor_marker(is_sel);
 
                     let weekday_prefix = match event.date.weekday() {
                         Weekday::Mon => "Пн",
@@ -349,7 +305,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
 
                     let date_span = Span::styled(
                         format!("[{} {}] ", weekday_prefix, event.date.format("%d.%m")),
-                        Style::default().fg(Color::Cyan),
+                        app.theme.key_badge_style(),
                     );
 
                     let time_str = match (event.start_time, event.end_time) {
@@ -359,15 +315,9 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         (Some(s), None) => format!("{} ", s.format("%H:%M")),
                         _ => "Весь день ".to_string(),
                     };
-                    let time_span = Span::styled(time_str, Style::default().fg(Color::Yellow));
+                    let time_span = Span::styled(time_str, app.theme.time_style());
 
-                    let title_style = if is_sel {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
+                    let title_style = app.theme.title_style(is_sel, false);
                     let title_span = Span::styled(format!("{} ", event.title), title_style);
 
                     let tags_str = event
@@ -376,11 +326,11 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         .map(|t| format!("#{:<0}", t.name))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let tags_span = Span::styled(tags_str, Style::default().fg(Color::Cyan));
+                    let tags_span = Span::styled(tags_str, app.theme.tag_style());
 
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
-                        lines.push(Line::from(line_spans).style(Style::default().bg(BG_SELECTED)));
+                        lines.push(Line::from(line_spans).style(app.theme.selection_style()));
                     } else {
                         lines.push(Line::from(line_spans));
                     }
@@ -391,25 +341,16 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             if app.search_results.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "   (ничего не найдено)",
-                    Style::default().fg(Color::DarkGray),
+                    app.theme.inactive_tab_style(),
                 )));
             } else {
                 for (i, event) in app.search_results.iter().enumerate() {
                     let is_sel = i == selected;
-                    let marker = if is_sel {
-                        Span::styled(
-                            " ▸ ",
-                            Style::default()
-                                .fg(Color::Cyan)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                    } else {
-                        Span::raw("   ")
-                    };
+                    let marker = app.theme.cursor_marker(is_sel);
 
                     let date_span = Span::styled(
                         format!("[{}] ", event.date.format("%d.%m.%Y")),
-                        Style::default().fg(Color::Cyan),
+                        app.theme.key_badge_style(),
                     );
 
                     let time_str = match (event.start_time, event.end_time) {
@@ -419,15 +360,9 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         (Some(s), None) => format!("{} ", s.format("%H:%M")),
                         _ => String::new(),
                     };
-                    let time_span = Span::styled(time_str, Style::default().fg(Color::Yellow));
+                    let time_span = Span::styled(time_str, app.theme.time_style());
 
-                    let title_style = if is_sel {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
+                    let title_style = app.theme.title_style(is_sel, false);
                     let title_span = Span::styled(format!("{} ", event.title), title_style);
 
                     let tags_str = event
@@ -436,11 +371,11 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         .map(|t| format!("#{}", t.name))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let tags_span = Span::styled(tags_str, Style::default().fg(Color::DarkGray));
+                    let tags_span = Span::styled(tags_str, app.theme.tag_style());
 
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
-                        lines.push(Line::from(line_spans).style(Style::default().bg(BG_SELECTED)));
+                        lines.push(Line::from(line_spans).style(app.theme.selection_style()));
                     } else {
                         lines.push(Line::from(line_spans));
                     }
@@ -449,7 +384,6 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
         }
     }
 
-    // Scrolling logic
     let total_rendered_lines = lines.len();
     let scroll_offset = if selected >= list_height && total_rendered_lines > list_height {
         (selected + 1).saturating_sub(list_height)
@@ -466,44 +400,22 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
     frame.render_widget(Paragraph::new(visible_lines), area);
 }
 
-fn render_event_line(event: &crate::model::EventOccurrence, is_sel: bool) -> Line<'static> {
-    let marker = if is_sel {
-        Span::styled(
-            " ▸ ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        Span::raw("   ")
-    };
-
-    let imp_indicator = match event.importance {
-        Importance::High => Span::styled(
-            "▲ ! ",
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Importance::Normal => Span::styled("● ", Style::default().fg(Color::Cyan)),
-        Importance::Low => Span::styled("· ", Style::default().fg(Color::Blue)),
-        Importance::None => Span::raw("  "),
-    };
+fn render_event_line(
+    event: &crate::model::EventOccurrence,
+    is_sel: bool,
+    theme: Theme,
+) -> Line<'static> {
+    let marker = theme.cursor_marker(is_sel);
+    let imp_indicator = theme.importance_span(event.importance);
 
     let time_str = match (event.start_time, event.end_time) {
         (Some(s), Some(e)) => format!("{}-{} ", s.format("%H:%M"), e.format("%H:%M")),
         (Some(s), None) => format!("{} ", s.format("%H:%M")),
         _ => "Весь день ".to_string(),
     };
-    let time_span = Span::styled(time_str, Style::default().fg(Color::Yellow));
+    let time_span = Span::styled(time_str, theme.time_style());
 
-    let title_style = if is_sel {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::White)
-    };
+    let title_style = theme.title_style(is_sel, false);
     let title_span = Span::styled(format!("{} ", event.title), title_style);
 
     let tags_str = event
@@ -512,11 +424,11 @@ fn render_event_line(event: &crate::model::EventOccurrence, is_sel: bool) -> Lin
         .map(|t| format!("#{}", t.name))
         .collect::<Vec<_>>()
         .join(" ");
-    let tags_span = Span::styled(tags_str, Style::default().fg(Color::Cyan));
+    let tags_span = Span::styled(tags_str, theme.tag_style());
 
     let line_spans = vec![marker, imp_indicator, time_span, title_span, tags_span];
     if is_sel {
-        Line::from(line_spans).style(Style::default().bg(BG_SELECTED))
+        Line::from(line_spans).style(theme.selection_style())
     } else {
         Line::from(line_spans)
     }
@@ -545,164 +457,65 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
                     .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                "[y] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Да · ", Style::default().fg(Color::White)),
-            Span::styled("[Любая клавиша] ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Отмена ", Style::default().fg(Color::DarkGray)),
+            Span::styled("[y] ", app.theme.key_badge_style()),
+            Span::styled("Да · ", app.theme.title_style(false, false)),
+            Span::styled("[Любая клавиша] ", app.theme.inactive_tab_style()),
+            Span::styled("Отмена ", app.theme.inactive_tab_style()),
         ]);
     }
 
     match app.tab {
         InlineTab::Day => Line::from(vec![
-            Span::styled(
-                " [↑/↓] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Enter] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[e] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[a/A] ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Доб · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[x] ",
-                Style::default()
-                    .fg(Color::LightRed)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Space] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Статус · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Tab] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Режим ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
+            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
+            Span::styled("[Enter] ", app.theme.key_badge_style()),
+            Span::styled("Карта · ", app.theme.inactive_tab_style()),
+            Span::styled("[e] ", app.theme.key_badge_style()),
+            Span::styled("Изм · ", app.theme.inactive_tab_style()),
+            Span::styled("[a/A] ", app.theme.key_badge_style()),
+            Span::styled("Доб · ", app.theme.inactive_tab_style()),
+            Span::styled("[x] ", app.theme.key_badge_style()),
+            Span::styled("Удал · ", app.theme.inactive_tab_style()),
+            Span::styled("[m] ", app.theme.key_badge_style()),
+            Span::styled("Тема · ", app.theme.inactive_tab_style()),
+            Span::styled("[Space] ", app.theme.key_badge_style()),
+            Span::styled("Статус · ", app.theme.inactive_tab_style()),
+            Span::styled("[Tab] ", app.theme.key_badge_style()),
+            Span::styled("Режим ", app.theme.inactive_tab_style()),
         ]),
         InlineTab::Week => Line::from(vec![
-            Span::styled(
-                " [↑/↓] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Enter] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[e] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[a] ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Доб · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[x] ",
-                Style::default()
-                    .fg(Color::LightRed)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Tab] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Режим · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[F] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("TUI ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
+            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
+            Span::styled("[Enter] ", app.theme.key_badge_style()),
+            Span::styled("Карта · ", app.theme.inactive_tab_style()),
+            Span::styled("[e] ", app.theme.key_badge_style()),
+            Span::styled("Изм · ", app.theme.inactive_tab_style()),
+            Span::styled("[a] ", app.theme.key_badge_style()),
+            Span::styled("Доб · ", app.theme.inactive_tab_style()),
+            Span::styled("[x] ", app.theme.key_badge_style()),
+            Span::styled("Удал · ", app.theme.inactive_tab_style()),
+            Span::styled("[m] ", app.theme.key_badge_style()),
+            Span::styled("Тема · ", app.theme.inactive_tab_style()),
+            Span::styled("[Tab] ", app.theme.key_badge_style()),
+            Span::styled("Режим · ", app.theme.inactive_tab_style()),
+            Span::styled("[F] ", app.theme.key_badge_style()),
+            Span::styled("TUI ", app.theme.inactive_tab_style()),
         ]),
         InlineTab::Search => Line::from(vec![
-            Span::styled(
-                " [↑/↓] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Enter] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Карта · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[e] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Изм · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[x] ",
-                Style::default()
-                    .fg(Color::LightRed)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Удал · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Esc] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Сброс · ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Tab] ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("Режим ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
+            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
+            Span::styled("[Enter] ", app.theme.key_badge_style()),
+            Span::styled("Карта · ", app.theme.inactive_tab_style()),
+            Span::styled("[e] ", app.theme.key_badge_style()),
+            Span::styled("Изм · ", app.theme.inactive_tab_style()),
+            Span::styled("[x] ", app.theme.key_badge_style()),
+            Span::styled("Удал · ", app.theme.inactive_tab_style()),
+            Span::styled("[m] ", app.theme.key_badge_style()),
+            Span::styled("Тема · ", app.theme.inactive_tab_style()),
+            Span::styled("[Esc] ", app.theme.key_badge_style()),
+            Span::styled("Сброс · ", app.theme.inactive_tab_style()),
+            Span::styled("[Tab] ", app.theme.key_badge_style()),
+            Span::styled("Режим ", app.theme.inactive_tab_style()),
         ]),
     }
 }
@@ -715,25 +528,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_render_inline_headless() {
+    fn test_render_inline_headless_neo_and_plain() {
         let backend = TestBackend::new(90, 13);
         let mut terminal = Terminal::new(backend).unwrap();
 
         let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
-        let app = InlineApp::new(today, InlineTab::Day);
 
+        // 1. Test Neo Theme
+        let app_neo = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Neo);
         terminal
             .draw(|frame| {
-                render_inline(frame, frame.area(), &app);
+                render_inline(frame, frame.area(), &app_neo);
             })
             .unwrap();
 
         let buffer = terminal.backend().buffer();
-        let rendered_text = format!("{:?}", buffer);
+        let text_neo = format!("{:?}", buffer);
+        assert!(text_neo.contains("1 ДЕНЬ"));
+        assert!(text_neo.contains("2 НЕДЕЛЯ"));
+        assert!(text_neo.contains("3 ПОИСК"));
+        assert!(text_neo.contains("Neo"));
 
-        assert!(rendered_text.contains("1 ДЕНЬ"));
-        assert!(rendered_text.contains("2 НЕДЕЛЯ"));
-        assert!(rendered_text.contains("3 ПОИСК"));
-        assert!(rendered_text.contains("03.09"));
+        // 2. Test Plain Theme (ASCII)
+        let app_plain = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Plain);
+        terminal
+            .draw(|frame| {
+                render_inline(frame, frame.area(), &app_plain);
+            })
+            .unwrap();
+
+        let buffer_plain = terminal.backend().buffer();
+        let text_plain = format!("{:?}", buffer_plain);
+        assert!(text_plain.contains("[D]"));
+        assert!(text_plain.contains("Plain"));
     }
 }

@@ -29,7 +29,7 @@ use crate::{
 
 pub fn run_inline(
     database: &mut Database,
-    _config: &Config,
+    config: &Config,
     initial_period: Option<Period>,
 ) -> Result<InlineOutcome, Box<dyn Error>> {
     let today = Local::now().date_naive();
@@ -39,7 +39,7 @@ pub fn run_inline(
         _ => InlineTab::Day,
     };
 
-    let mut app = InlineApp::new(today, initial_tab);
+    let mut app = InlineApp::new(today, initial_tab).with_theme(config.ui.theme);
     app.reload_all(database)?;
 
     enable_raw_mode()?;
@@ -105,15 +105,19 @@ pub fn run_inline(
                             terminal.clear()?;
                             disable_raw_mode()?;
 
-                            let _ = run_edit_form_interactive(database, &event_to_edit);
+                            let _ = run_edit_form_interactive(database, &event_to_edit, app.theme);
 
                             enable_raw_mode()?;
                             app.reload_all(database)?;
                         }
                     }
+                    (KeyCode::Char('m'), KeyModifiers::CONTROL) => {
+                        app.cycle_theme();
+                    }
                     (KeyCode::Char('x') | KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                         app.request_delete();
                     }
+
                     (KeyCode::Tab, KeyModifiers::NONE) => {
                         app.cycle_tab();
                     }
@@ -212,11 +216,14 @@ pub fn run_inline(
                             terminal.clear()?;
                             disable_raw_mode()?;
 
-                            let _ = run_edit_form_interactive(database, &event_to_edit);
+                            let _ = run_edit_form_interactive(database, &event_to_edit, app.theme);
 
                             enable_raw_mode()?;
                             app.reload_all(database)?;
                         }
+                    }
+                    (KeyCode::Char('m'), KeyModifiers::NONE) | (KeyCode::F(5), _) => {
+                        app.cycle_theme();
                     }
                     (KeyCode::Char('x'), KeyModifiers::NONE) => {
                         app.request_delete();
@@ -225,7 +232,7 @@ pub fn run_inline(
                         terminal.clear()?;
                         disable_raw_mode()?;
 
-                        let _ = run_add_task_interactive(database, app.current_date);
+                        let _ = run_add_task_interactive(database, app.current_date, app.theme);
 
                         enable_raw_mode()?;
                         app.reload_all(database)?;
@@ -235,9 +242,9 @@ pub fn run_inline(
                         disable_raw_mode()?;
 
                         if app.is_task_selected() {
-                            let _ = run_add_task_interactive(database, app.current_date);
+                            let _ = run_add_task_interactive(database, app.current_date, app.theme);
                         } else {
-                            let _ = run_add_form_interactive(database, app.current_date);
+                            let _ = run_add_form_interactive(database, app.current_date, app.theme);
                         }
 
                         enable_raw_mode()?;

@@ -3,10 +3,13 @@ pub mod day;
 pub mod link_bank;
 pub mod month;
 pub mod popup;
+pub mod theme;
 pub mod upcoming;
 pub mod week;
 pub mod widgets;
 pub mod year;
+
+pub use theme::Theme;
 
 use chrono::Datelike;
 use ratatui::{

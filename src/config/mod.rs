@@ -2,7 +2,7 @@ use std::{error::Error, path::PathBuf};
 
 use serde::Deserialize;
 
-use crate::model::Importance;
+use crate::{model::Importance, ui::Theme};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -40,6 +40,7 @@ pub struct KeyConfig {
 #[serde(default)]
 pub struct UiConfig {
     pub show_week_numbers: bool,
+    pub theme: Theme,
 }
 
 impl Default for Config {
@@ -166,5 +167,22 @@ mod tests {
         assert!(config.validate().is_err());
         config.keys.copy_link = 'd';
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn theme_can_be_configured_from_toml() {
+        let toml_str = r#"
+            [ui]
+            theme = "plain"
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.ui.theme, Theme::Plain);
+
+        let toml_str_light = r#"
+            [ui]
+            theme = "light"
+        "#;
+        let config_light: Config = toml::from_str(toml_str_light).unwrap();
+        assert_eq!(config_light.ui.theme, Theme::Light);
     }
 }

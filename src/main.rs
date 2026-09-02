@@ -16,9 +16,13 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let cli_theme = rutendar::cli::extract_theme_arg(&mut args);
     let cmd = rutendar::cli::parse_cli_command(&args)?;
-    let (config, paths) = Config::load()?;
+    let (mut config, paths) = Config::load()?;
+    if let Some(theme) = cli_theme {
+        config.ui.theme = theme;
+    }
 
     match cmd {
         Some(rutendar::cli::CliCommand::FullTui) => {
