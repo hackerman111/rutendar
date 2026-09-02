@@ -1,17 +1,19 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
 };
 
 use super::widgets::{
-    FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, UNFOCUSED, centered, importance_style,
+    KEY_LABEL, centered, theme_border_type, theme_focused, theme_importance_style, theme_selected,
+    theme_unfocused,
 };
-use crate::{app::App, search::SearchResult};
+use crate::{app::App, search::SearchResult, ui::Theme};
 
 pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let popup = centered(area, 92, 86);
     frame.render_widget(Clear, popup);
     let rows = Layout::default()
@@ -30,32 +32,26 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         " [ SEARCH ] "
     };
     let search_border = if app.state.agenda.searching {
-        FOCUSED
+        theme_focused(theme)
     } else {
-        UNFOCUSED
+        theme_unfocused(theme)
     };
 
     let search_content = if app.state.agenda.searching {
         Line::from(vec![
-            Span::styled(
-                "› ",
-                Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &app.state.agenda.query,
-                Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("█", Style::new().fg(Color::Cyan)),
+            Span::styled("› ", theme.key_badge_style()),
+            Span::styled(&app.state.agenda.query, theme.title_style(true, false)),
+            Span::styled("█", theme.time_style()),
         ])
     } else if app.state.agenda.query.is_empty() {
         Line::from(vec![
-            Span::styled("› ", Style::new().fg(Color::DarkGray)),
-            Span::styled("Нажмите / для поиска...", Style::new().fg(Color::DarkGray)),
+            Span::styled("› ", theme_unfocused(theme)),
+            Span::styled("Нажмите / для поиска...", theme_unfocused(theme)),
         ])
     } else {
         Line::from(vec![
-            Span::styled("› ", Style::new().fg(Color::Cyan)),
-            Span::styled(&app.state.agenda.query, Style::new().fg(Color::White)),
+            Span::styled("› ", theme.time_style()),
+            Span::styled(&app.state.agenda.query, theme.title_style(false, false)),
         ])
     };
 
@@ -63,12 +59,13 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(search_content).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(
                     search_title,
                     if app.state.agenda.searching {
-                        SELECTED
+                        theme_selected(theme)
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        theme_unfocused(theme)
                     },
                 ))
                 .border_style(search_border),
@@ -79,36 +76,21 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
     // Filters and Tags bar
     let filters = &app.state.agenda.filters;
     let filter_line = Line::from(vec![
-        Span::styled("[f]", KEY_BADGE),
+        Span::styled("[f]", theme.key_badge_style()),
         Span::styled(" DATE:", KEY_LABEL),
-        Span::styled(
-            format!(" {}  ", filters.date.label()),
-            Style::new().fg(Color::Cyan),
-        ),
-        Span::styled("[R]", KEY_BADGE),
+        Span::styled(format!(" {}  ", filters.date.label()), theme.time_style()),
+        Span::styled("[R]", theme.key_badge_style()),
         Span::styled(" TYPE:", KEY_LABEL),
-        Span::styled(
-            format!(" {:?}  ", filters.item_type),
-            Style::new().fg(Color::Cyan),
-        ),
-        Span::styled("[i]", KEY_BADGE),
+        Span::styled(format!(" {:?}  ", filters.item_type), theme.time_style()),
+        Span::styled("[i]", theme.key_badge_style()),
         Span::styled(" PRI:", KEY_LABEL),
-        Span::styled(
-            format!(" {:?}  ", filters.importance),
-            Style::new().fg(Color::Cyan),
-        ),
-        Span::styled("[s]", KEY_BADGE),
+        Span::styled(format!(" {:?}  ", filters.importance), theme.time_style()),
+        Span::styled("[s]", theme.key_badge_style()),
         Span::styled(" SORT:", KEY_LABEL),
-        Span::styled(
-            format!(" {:?}  ", filters.sort),
-            Style::new().fg(Color::Cyan),
-        ),
-        Span::styled("[A]", KEY_BADGE),
+        Span::styled(format!(" {:?}  ", filters.sort), theme.time_style()),
+        Span::styled("[A]", theme.key_badge_style()),
         Span::styled(" TAGS:", KEY_LABEL),
-        Span::styled(
-            format!(" {:?}", filters.tag_matching),
-            Style::new().fg(Color::Cyan),
-        ),
+        Span::styled(format!(" {:?}", filters.tag_matching), theme.time_style()),
     ]);
 
     let tag_capacity = (popup.width / 14).max(1) as usize;
@@ -119,9 +101,9 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         .saturating_sub(tag_capacity.saturating_sub(1));
 
     let mut tag_spans = vec![
-        Span::styled("[[/]]", KEY_BADGE),
+        Span::styled("[[/]]", theme.key_badge_style()),
         Span::styled(" TAGS  ", KEY_LABEL),
-        Span::styled("[X]", KEY_BADGE),
+        Span::styled("[X]", theme.key_badge_style()),
         Span::styled(" DEL TAG  ", KEY_LABEL),
     ];
 
@@ -137,20 +119,21 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         let selected = filters.tags.contains(&tag.normalized_name);
         let is_cursor = index == app.state.agenda.tag_cursor;
 
+        let check_sym = if theme == Theme::Ascii { "[v]" } else { "✓" };
         if selected {
-            tag_spans.push(Span::styled(format!(" ✓ #{} ", tag.name), SELECTED));
+            tag_spans.push(Span::styled(
+                format!(" {check_sym} #{} ", tag.name),
+                theme_selected(theme),
+            ));
         } else if is_cursor {
             tag_spans.push(Span::styled(
                 format!(" #{} ", tag.name),
-                Style::new()
-                    .fg(Color::Black)
-                    .bg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+                theme.key_badge_style(),
             ));
         } else {
             tag_spans.push(Span::styled(
                 format!(" #{} ", tag.name),
-                Style::new().fg(Color::DarkGray),
+                theme_unfocused(theme),
             ));
         }
         tag_spans.push(Span::raw(" "));
@@ -168,6 +151,11 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         .selected
         .saturating_sub(capacity.saturating_sub(1));
 
+    let cursor = match theme {
+        Theme::Default => "▸ ",
+        Theme::Ascii => "> ",
+    };
+
     let table_rows = app
         .state
         .agenda
@@ -179,27 +167,45 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         .map(|(index, item)| {
             let is_row_selected = index == app.state.agenda.selected;
             let (time, importance_sym, importance_val, kind, title, tags) = match item {
-                SearchResult::Event(event) => (
-                    event
-                        .start_time
-                        .map(|time| time.format("%H:%M").to_string())
-                        .unwrap_or_else(|| "день".into()),
-                    app.config.importance_symbol(event.importance).to_owned(),
-                    event.importance,
-                    if event.is_recurring {
-                        "↻ REPEAT"
+                SearchResult::Event(event) => {
+                    let imp_disp = if theme == Theme::Ascii {
+                        match event.importance {
+                            crate::model::Importance::High => "[!]".into(),
+                            crate::model::Importance::Normal => "[.]".into(),
+                            crate::model::Importance::Low => "[-]".into(),
+                            crate::model::Importance::None => String::new(),
+                        }
                     } else {
-                        "EVENT"
-                    }
-                    .to_owned(),
-                    event.title.clone(),
-                    event
-                        .tags
-                        .iter()
-                        .map(|tag| format!("#{}", tag.name))
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                ),
+                        app.config.importance_symbol(event.importance).to_owned()
+                    };
+                    let rec_label = if theme == Theme::Ascii {
+                        "(R) REPEAT"
+                    } else {
+                        "↻ REPEAT"
+                    };
+
+                    (
+                        event
+                            .start_time
+                            .map(|time| time.format("%H:%M").to_string())
+                            .unwrap_or_else(|| "день".into()),
+                        imp_disp,
+                        event.importance,
+                        if event.is_recurring {
+                            rec_label
+                        } else {
+                            "EVENT"
+                        }
+                        .to_owned(),
+                        event.title.clone(),
+                        event
+                            .tags
+                            .iter()
+                            .map(|tag| format!("#{}", tag.name))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    )
+                }
                 SearchResult::Note(note) => (
                     "-".into(),
                     String::new(),
@@ -210,15 +216,15 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
                 ),
             };
 
-            let sel_style = Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD);
+            let sel_style = theme_selected(theme);
 
             let (date_span, time_span, pri_span, kind_span, title_span, tags_span) =
                 if is_row_selected {
                     (
-                        Span::styled(format!("▸ {}", item.date().format("%d.%m.%Y")), sel_style),
+                        Span::styled(
+                            format!("{cursor}{}", item.date().format("%d.%m.%Y")),
+                            sel_style,
+                        ),
                         Span::styled(time, sel_style),
                         Span::styled(importance_sym, sel_style),
                         Span::styled(kind, sel_style),
@@ -229,20 +235,23 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
                     (
                         Span::styled(
                             format!("  {}", item.date().format("%d.%m.%Y")),
-                            Style::new().fg(Color::White),
+                            theme.title_style(false, false),
                         ),
                         Span::styled(
                             time.clone(),
                             if time == "день" || time == "-" {
-                                Style::new().fg(Color::DarkGray)
+                                theme_unfocused(theme)
                             } else {
-                                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                theme.time_style()
                             },
                         ),
-                        Span::styled(importance_sym, importance_style(importance_val)),
-                        Span::styled(kind, Style::new().fg(Color::DarkGray)),
-                        Span::styled(title, Style::new().fg(Color::White)),
-                        Span::styled(tags, Style::new().fg(Color::DarkGray)),
+                        Span::styled(
+                            importance_sym,
+                            theme_importance_style(theme, importance_val),
+                        ),
+                        Span::styled(kind, theme_unfocused(theme)),
+                        Span::styled(title, theme.title_style(false, false)),
+                        Span::styled(tags, theme_unfocused(theme)),
                     )
                 };
 
@@ -277,16 +286,17 @@ pub fn render_agenda(frame: &mut Frame, area: Rect, app: &App) {
         )
         .header(
             Row::new(["  DATE", "TIME", "PRI", "TYPE", "EVENT / NOTE", "TAGS"])
-                .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .style(theme.time_style()),
         )
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(
                     format!(" AGENDA // RESULTS: {total_results} "),
-                    SELECTED,
+                    theme_selected(theme),
                 ))
-                .border_style(FOCUSED),
+                .border_style(theme_focused(theme)),
         ),
         rows[2],
     );

@@ -185,6 +185,7 @@ impl Keymap {
             KeyCode::Char('[') => Action::PreviousTagFilter,
             KeyCode::Char(']') => Action::NextTagFilter,
             KeyCode::Char(' ') => Action::ToggleTagFilter,
+            KeyCode::F(5) | KeyCode::Char('M') => Action::CycleTheme,
             KeyCode::Char(character) if character == self.open_link => Action::OpenLink,
             KeyCode::Char(character) if character == self.copy_link => Action::CopyLink,
             _ => Action::Noop,

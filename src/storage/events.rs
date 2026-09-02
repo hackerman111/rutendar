@@ -21,7 +21,98 @@ use crate::{
     recurrence::{MAX_INTERVAL_WEEKS, expand_weekly},
 };
 
+#[derive(Debug, Clone)]
+pub struct EventExportData {
+    pub event: Event,
+    pub tags: Vec<String>,
+    pub recurrence: Option<Recurrence>,
+    pub favorite_links: Vec<String>,
+}
+
 impl Database {
+    pub fn all_events_for_export(&self) -> StorageResult<Vec<EventExportData>> {
+        let mut direct_statement = self.connection.prepare(
+            "SELECT id, title, description, start_date, start_time, end_time, importance,
+                    recurrence_id, directory
+             FROM events
+             WHERE recurrence_id IS NULL
+               AND id NOT IN (
+                   SELECT replacement_event_id FROM recurrence_exceptions
+                   WHERE replacement_event_id IS NOT NULL
+               )
+             ORDER BY start_date, start_time",
+        )?;
+        let direct_events: Vec<Event> = direct_statement
+            .query_map([], event_from_row)?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut recurring_statement = self.connection.prepare(
+            "SELECT e.id, e.title, e.description, e.start_date, e.start_time, e.end_time,
+                    e.importance, e.recurrence_id, e.directory,
+                    r.id, r.frequency, r.interval, r.weekdays, r.start_date, r.end_date, r.count
+             FROM events e
+             JOIN recurrences r ON r.id = e.recurrence_id
+             ORDER BY e.start_date, e.start_time",
+        )?;
+        let recurring: Vec<(Event, Recurrence)> = recurring_statement
+            .query_map([], |row| {
+                Ok((event_from_row(row)?, recurrence_from_row(row, 9)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut all_event_ids: Vec<_> = direct_events.iter().map(|e| e.id).collect();
+        all_event_ids.extend(recurring.iter().map(|(e, _)| e.id));
+        all_event_ids.sort_unstable();
+        all_event_ids.dedup();
+
+        let tags_map = self.tags_for_events(&all_event_ids)?;
+        let fav_links_map = self.favorite_links_for_events(&all_event_ids)?;
+
+        let mut result = Vec::with_capacity(direct_events.len() + recurring.len());
+
+        for event in direct_events {
+            let tags = tags_map
+                .get(&event.id)
+                .map(|tags| tags.iter().map(|t| t.name.clone()).collect())
+                .unwrap_or_default();
+            let favorite_links = fav_links_map
+                .get(&event.id)
+                .map(|links| links.iter().map(|l| l.url.clone()).collect())
+                .unwrap_or_default();
+            result.push(EventExportData {
+                event,
+                tags,
+                recurrence: None,
+                favorite_links,
+            });
+        }
+
+        for (event, recurrence) in recurring {
+            let tags = tags_map
+                .get(&event.id)
+                .map(|tags| tags.iter().map(|t| t.name.clone()).collect())
+                .unwrap_or_default();
+            let favorite_links = fav_links_map
+                .get(&event.id)
+                .map(|links| links.iter().map(|l| l.url.clone()).collect())
+                .unwrap_or_default();
+            result.push(EventExportData {
+                event,
+                tags,
+                recurrence: Some(recurrence),
+                favorite_links,
+            });
+        }
+
+        result.sort_by(|a, b| {
+            a.event
+                .start_date
+                .cmp(&b.event.start_date)
+                .then_with(|| a.event.start_time.cmp(&b.event.start_time))
+        });
+
+        Ok(result)
+    }
     pub fn events_between(
         &self,
         range_start: NaiveDate,

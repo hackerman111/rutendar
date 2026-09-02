@@ -11,75 +11,65 @@ use crate::model::Importance;
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
     #[default]
-    Neo,
-    Light,
-    Plain,
+    #[serde(alias = "neo", alias = "dark", alias = "classic")]
+    Default,
+    #[serde(alias = "plain")]
+    Ascii,
 }
 
 impl Theme {
     pub fn cycle(self) -> Self {
         match self {
-            Self::Neo => Self::Light,
-            Self::Light => Self::Plain,
-            Self::Plain => Self::Neo,
+            Self::Default => Self::Ascii,
+            Self::Ascii => Self::Default,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Neo => "Neo",
-            Self::Light => "Light",
-            Self::Plain => "Plain",
+            Self::Default => "Default",
+            Self::Ascii => "ASCII",
         }
     }
 
     pub fn border_type(self) -> BorderType {
         match self {
-            Self::Neo | Self::Light => BorderType::Rounded,
-            Self::Plain => BorderType::Plain,
+            Self::Default => BorderType::Rounded,
+            Self::Ascii => BorderType::Plain,
         }
     }
 
     pub fn border_color(self, is_warning: bool) -> Color {
         if is_warning {
             match self {
-                Self::Neo => Color::LightRed,
-                Self::Light => Color::Red,
-                Self::Plain => Color::Reset,
+                Self::Default => Color::LightRed,
+                Self::Ascii => Color::Reset,
             }
         } else {
             match self {
-                Self::Neo => Color::Cyan,
-                Self::Light => Color::DarkGray,
-                Self::Plain => Color::Reset,
+                Self::Default => Color::Cyan,
+                Self::Ascii => Color::Reset,
             }
         }
     }
 
     pub fn selection_style(self) -> Style {
         match self {
-            Self::Neo => Style::default().bg(Color::Rgb(24, 34, 52)),
-            Self::Light => Style::default().bg(Color::Rgb(220, 225, 235)),
-            Self::Plain => Style::default().add_modifier(Modifier::REVERSED),
+            Self::Default => Style::default().bg(Color::Rgb(24, 34, 52)),
+            Self::Ascii => Style::default().add_modifier(Modifier::REVERSED),
         }
     }
 
     pub fn cursor_marker(self, is_selected: bool) -> Span<'static> {
         if is_selected {
             match self {
-                Self::Neo => Span::styled(
+                Self::Default => Span::styled(
                     " ▸ ",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Self::Light => Span::styled(
-                    " > ",
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Self::Plain => Span::styled(">  ", Style::default().add_modifier(Modifier::BOLD)),
+                Self::Ascii => Span::styled(">  ", Style::default().add_modifier(Modifier::BOLD)),
             }
         } else {
             Span::raw("   ")
@@ -88,72 +78,56 @@ impl Theme {
 
     pub fn date_icon(self) -> &'static str {
         match self {
-            Self::Neo | Self::Light => "📅 ",
-            Self::Plain => "[D] ",
+            Self::Default => "📅 ",
+            Self::Ascii => "[D] ",
         }
     }
 
     pub fn search_icon(self) -> &'static str {
         match self {
-            Self::Neo | Self::Light => "🔍 ",
-            Self::Plain => "[?] ",
+            Self::Default => "🔍 ",
+            Self::Ascii => "[?] ",
         }
     }
 
     pub fn add_icon(self) -> &'static str {
         match self {
-            Self::Neo | Self::Light => "➕ ",
-            Self::Plain => "+ ",
+            Self::Default => "➕ ",
+            Self::Ascii => "+ ",
         }
     }
 
     pub fn edit_icon(self) -> &'static str {
         match self {
-            Self::Neo | Self::Light => "✏️ ",
-            Self::Plain => "* ",
+            Self::Default => "✏️ ",
+            Self::Ascii => "* ",
         }
     }
 
     pub fn task_icon(self) -> &'static str {
         match self {
-            Self::Neo | Self::Light => "☑️ ",
-            Self::Plain => "[T] ",
+            Self::Default => "☑️ ",
+            Self::Ascii => "[T] ",
         }
     }
 
     pub fn importance_span(self, imp: Importance) -> Span<'static> {
         match self {
-            Self::Neo => match imp {
+            Self::Default => match imp {
                 Importance::High => Span::styled(
                     "▲ ! ",
-                    Style::default()
-                        .fg(Color::LightRed)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
-                Importance::Normal => Span::styled("● ", Style::default().fg(Color::Cyan)),
+                Importance::Normal => Span::styled("• ", Style::default().fg(Color::Yellow)),
                 Importance::Low => Span::styled("· ", Style::default().fg(Color::Blue)),
                 Importance::None => Span::raw("  "),
             },
-            Self::Light => match imp {
-                Importance::High => Span::styled(
-                    "! ",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-                Importance::Normal => Span::styled(
-                    "* ",
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Importance::Low => Span::styled("- ", Style::default().fg(Color::DarkGray)),
-                Importance::None => Span::raw("  "),
-            },
-            Self::Plain => match imp {
+            Self::Ascii => match imp {
                 Importance::High => {
                     Span::styled("[!] ", Style::default().add_modifier(Modifier::BOLD))
                 }
-                Importance::Normal => Span::raw("[.] "),
-                Importance::Low => Span::raw("[-] "),
+                Importance::Normal => Span::styled("[.] ", Style::default()),
+                Importance::Low => Span::styled("[-] ", Style::default().fg(Color::DarkGray)),
                 Importance::None => Span::raw("    "),
             },
         }
@@ -161,30 +135,18 @@ impl Theme {
 
     pub fn task_checkbox_span(self, is_done: bool) -> Span<'static> {
         match self {
-            Self::Neo => {
+            Self::Default => {
                 if is_done {
                     Span::styled("✔ [x] ", Style::default().fg(Color::Green))
                 } else {
                     Span::styled("☐ [ ] ", Style::default().fg(Color::DarkGray))
                 }
             }
-            Self::Light => {
-                if is_done {
-                    Span::styled(
-                        "[x] ",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::styled("[ ] ", Style::default().fg(Color::DarkGray))
-                }
-            }
-            Self::Plain => {
+            Self::Ascii => {
                 if is_done {
                     Span::styled("[X] ", Style::default().add_modifier(Modifier::BOLD))
                 } else {
-                    Span::raw("[ ] ")
+                    Span::styled("[ ] ", Style::default())
                 }
             }
         }
@@ -192,80 +154,64 @@ impl Theme {
 
     pub fn time_style(self) -> Style {
         match self {
-            Self::Neo => Style::default().fg(Color::Yellow),
-            Self::Light => Style::default()
-                .fg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-            Self::Plain => Style::default().add_modifier(Modifier::BOLD),
+            Self::Default => Style::default().fg(Color::Yellow),
+            Self::Ascii => Style::default().add_modifier(Modifier::BOLD),
         }
     }
 
     pub fn tag_style(self) -> Style {
         match self {
-            Self::Neo => Style::default().fg(Color::Cyan),
-            Self::Light => Style::default().fg(Color::Blue),
-            Self::Plain => Style::default(),
+            Self::Default => Style::default().fg(Color::Cyan),
+            Self::Ascii => Style::default(),
         }
     }
 
     pub fn title_style(self, is_selected: bool, is_done: bool) -> Style {
         if is_done {
             match self {
-                Self::Neo | Self::Light => Style::default()
+                Self::Default => Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::CROSSED_OUT),
-                Self::Plain => Style::default().add_modifier(Modifier::DIM),
+                Self::Ascii => Style::default().add_modifier(Modifier::DIM),
             }
         } else if is_selected {
             match self {
-                Self::Neo => Style::default()
+                Self::Default => Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
-                Self::Light => Style::default()
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD),
-                Self::Plain => Style::default().add_modifier(Modifier::BOLD),
+                Self::Ascii => Style::default().add_modifier(Modifier::BOLD),
             }
         } else {
             match self {
-                Self::Neo => Style::default().fg(Color::White),
-                Self::Light => Style::default().fg(Color::Black),
-                Self::Plain => Style::default(),
+                Self::Default => Style::default().fg(Color::White),
+                Self::Ascii => Style::default(),
             }
         }
     }
 
     pub fn active_tab_style(self) -> Style {
         match self {
-            Self::Neo => Style::default()
+            Self::Default => Style::default()
                 .fg(Color::Black)
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-            Self::Light => Style::default()
-                .fg(Color::White)
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-            Self::Plain => Style::default().add_modifier(Modifier::REVERSED),
+            Self::Ascii => Style::default().add_modifier(Modifier::REVERSED),
         }
     }
 
     pub fn inactive_tab_style(self) -> Style {
         match self {
-            Self::Neo => Style::default().fg(Color::DarkGray),
-            Self::Light => Style::default().fg(Color::Gray),
-            Self::Plain => Style::default(),
+            Self::Default => Style::default().fg(Color::DarkGray),
+            Self::Ascii => Style::default(),
         }
     }
 
     pub fn key_badge_style(self) -> Style {
         match self {
-            Self::Neo => Style::default()
+            Self::Default => Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
-            Self::Light => Style::default()
-                .fg(Color::Blue)
-                .add_modifier(Modifier::BOLD),
-            Self::Plain => Style::default().add_modifier(Modifier::BOLD),
+            Self::Ascii => Style::default().add_modifier(Modifier::BOLD),
         }
     }
 }
@@ -276,19 +222,18 @@ mod tests {
 
     #[test]
     fn test_theme_cycle() {
-        let t = Theme::Neo;
-        assert_eq!(t.cycle(), Theme::Light);
-        assert_eq!(t.cycle().cycle(), Theme::Plain);
-        assert_eq!(t.cycle().cycle().cycle(), Theme::Neo);
+        let t = Theme::Default;
+        assert_eq!(t.cycle(), Theme::Ascii);
+        assert_eq!(t.cycle().cycle(), Theme::Default);
     }
 
     #[test]
-    fn test_plain_theme_properties() {
-        let t = Theme::Plain;
+    fn test_ascii_theme_properties() {
+        let t = Theme::Ascii;
         assert_eq!(t.border_type(), BorderType::Plain);
         assert_eq!(t.date_icon(), "[D] ");
         assert_eq!(t.search_icon(), "[?] ");
-        assert_eq!(t.importance_span(Importance::High).content, "[!] ");
+        assert_eq!(t.add_icon(), "+ ");
         assert_eq!(t.task_checkbox_span(true).content, "[X] ");
     }
 }

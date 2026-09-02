@@ -173,16 +173,30 @@ mod tests {
     fn theme_can_be_configured_from_toml() {
         let toml_str = r#"
             [ui]
-            theme = "plain"
+            theme = "ascii"
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.ui.theme, Theme::Plain);
+        assert_eq!(config.ui.theme, Theme::Ascii);
 
-        let toml_str_light = r#"
+        let toml_str_plain = r#"
             [ui]
-            theme = "light"
+            theme = "plain"
         "#;
-        let config_light: Config = toml::from_str(toml_str_light).unwrap();
-        assert_eq!(config_light.ui.theme, Theme::Light);
+        let config_plain: Config = toml::from_str(toml_str_plain).unwrap();
+        assert_eq!(config_plain.ui.theme, Theme::Ascii);
+
+        let toml_str_default = r#"
+            [ui]
+            theme = "default"
+        "#;
+        let config_default: Config = toml::from_str(toml_str_default).unwrap();
+        assert_eq!(config_default.ui.theme, Theme::Default);
+
+        let toml_str_neo = r#"
+            [ui]
+            theme = "neo"
+        "#;
+        let config_neo: Config = toml::from_str(toml_str_neo).unwrap();
+        assert_eq!(config_neo.ui.theme, Theme::Default);
     }
 }

@@ -75,3 +75,38 @@ pub fn run_import(
     println!("  Загружено событий: \x1b[33m{}\x1b[0m", event_count);
     Ok(())
 }
+
+pub fn run_import_ics(database: &mut Database, import_path: &Path) -> Result<(), Box<dyn Error>> {
+    if !import_path.exists() {
+        return Err(format!("файл для импорта не найден: {}", import_path.display()).into());
+    }
+
+    let content = std::fs::read_to_string(import_path)?;
+    let calendar = crate::ics::parse_ics(&content)?;
+
+    let mut events_imported = 0;
+    for event in &calendar.events {
+        let new_event = event.to_new_event();
+        database.create_event(&new_event, event.recurrence.as_ref(), &event.tags, &[])?;
+        events_imported += 1;
+    }
+
+    let mut tasks_imported = 0;
+    for task in &calendar.tasks {
+        let new_task = task.to_new_task();
+        let task_id = database.create_task(&new_task)?;
+        if task.is_done {
+            database.toggle_task(task_id)?;
+        }
+        tasks_imported += 1;
+    }
+
+    println!("\x1b[1;32m✓ Импорт из iCalendar (.ics) успешно завершен!\x1b[0m");
+    println!("  Файл: \x1b[1m{}\x1b[0m", import_path.display());
+    println!(
+        "  Импортировано событий: \x1b[33m{}\x1b[0m",
+        events_imported
+    );
+    println!("  Импортировано задач: \x1b[35m{}\x1b[0m", tasks_imported);
+    Ok(())
+}

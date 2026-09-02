@@ -9,7 +9,7 @@ pub enum Frequency {
     Weekly,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recurrence {
     pub id: RecurrenceId,
     pub frequency: Frequency,
@@ -20,7 +20,7 @@ pub struct Recurrence {
     pub count: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewRecurrence {
     pub interval: u32,
     pub weekdays: Vec<Weekday>,

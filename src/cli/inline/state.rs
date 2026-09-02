@@ -491,16 +491,13 @@ mod tests {
     #[test]
     fn test_inline_app_theme_cycling() {
         let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
-        let mut app = InlineApp::new(today, InlineTab::Day).with_theme(crate::ui::Theme::Neo);
-        assert_eq!(app.theme, crate::ui::Theme::Neo);
+        let mut app = InlineApp::new(today, InlineTab::Day).with_theme(crate::ui::Theme::Default);
+        assert_eq!(app.theme, crate::ui::Theme::Default);
 
         app.cycle_theme();
-        assert_eq!(app.theme, crate::ui::Theme::Light);
+        assert_eq!(app.theme, crate::ui::Theme::Ascii);
 
         app.cycle_theme();
-        assert_eq!(app.theme, crate::ui::Theme::Plain);
-
-        app.cycle_theme();
-        assert_eq!(app.theme, crate::ui::Theme::Neo);
+        assert_eq!(app.theme, crate::ui::Theme::Default);
     }
 }

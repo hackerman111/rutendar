@@ -39,8 +39,18 @@ fn run() -> Result<(), Box<dyn Error>> {
             rutendar::cli::run_export(&database, target.as_deref())?;
             Ok(())
         }
+        Some(rutendar::cli::CliCommand::ExportIcs(target)) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_export_ics(&database, target.as_deref())?;
+            Ok(())
+        }
         Some(rutendar::cli::CliCommand::Import { path, force }) => {
             rutendar::cli::run_import(&paths.database, &path, force)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::ImportIcs { path }) => {
+            let mut database = Database::open(&paths.database)?;
+            rutendar::cli::run_import_ics(&mut database, &path)?;
             Ok(())
         }
         Some(rutendar::cli::CliCommand::TaskMenu) => {

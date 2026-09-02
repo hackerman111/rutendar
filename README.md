@@ -172,6 +172,28 @@ rutendar -i ~/rutendar_backup.db -f
 ```
 > **Безопасность:** перед импортом `Rutendar` автоматически проверяет файл на целостность (`PRAGMA integrity_check`) и создает резервную копию текущей базы с временной меткой (`.bak`).
 
+#### 📅 Синхронизация с Google Calendar, Apple Calendar, Outlook (.ics / RFC 5545)
+Вы можете выгрузить все события, повторяющиеся правила (`RRULE`), теги и задачи (`VTODO`) в стандартном формате **iCalendar (.ics)** для импорта в Google Календарь (или наоборот, загрузить выгруженный календарь в Rutendar):
+
+```bash
+# Экспорт в формат iCalendar (.ics):
+rutendar --export-ics ~/my_schedule.ics
+# или через флаг -E:
+rutendar -E
+# или просто указав расширение .ics:
+rutendar --export ~/my_schedule.ics
+
+# Импорт из Google Календаря (.ics):
+rutendar --import-ics ~/google_calendar.ics
+# или:
+rutendar --import ~/google_calendar.ics
+```
+
+**Как импортировать в Google Календарь:**
+1. Запустите `rutendar --export-ics my_schedule.ics`.
+2. В веб-версии Google Календаря откройте **Настройки (⚙) → Импорт и экспорт → Импорт**.
+3. Выберите файл `my_schedule.ics` и нажмите «Импортировать». Все события и задачи сразу появятся в вашем Google Календаре!
+
 ---
 
 ## ⌨️ Горячие клавиши в TUI

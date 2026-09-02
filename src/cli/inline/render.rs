@@ -81,12 +81,12 @@ fn build_header(app: &InlineApp) -> Line<'static> {
         app.today.format("%d.%m")
     );
 
-    let sep = if app.theme == Theme::Plain {
+    let sep = if app.theme == Theme::Ascii {
         "- "
     } else {
         "─ "
     };
-    let sep_end = if app.theme == Theme::Plain {
+    let sep_end = if app.theme == Theme::Ascii {
         " -"
     } else {
         " ─"
@@ -133,7 +133,7 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                 }
             };
 
-            let (arrow_l, arrow_r) = if app.theme == Theme::Plain {
+            let (arrow_l, arrow_r) = if app.theme == Theme::Ascii {
                 ("<- ", " ->")
             } else {
                 ("← ", " →")
@@ -195,7 +195,7 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                 Span::styled(&app.query, app.theme.title_style(true, false))
             };
 
-            let cursor_sym = if app.theme == Theme::Plain {
+            let cursor_sym = if app.theme == Theme::Ascii {
                 "_"
             } else {
                 "█"
@@ -242,7 +242,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
 
                 // Render tasks section
                 if !app.day_tasks.is_empty() {
-                    let task_divider = if app.theme == Theme::Plain {
+                    let task_divider = if app.theme == Theme::Ascii {
                         "  -- Задачи -------------------------------------------------------------"
                     } else {
                         "  ── Задачи ─────────────────────────────────────────────────────────────"
@@ -464,58 +464,80 @@ fn build_footer(app: &InlineApp) -> Line<'static> {
         ]);
     }
 
+    let (key_yellow, key_cyan, key_green, key_red, label_style) = if app.theme == Theme::Ascii {
+        let b = Style::default().add_modifier(Modifier::BOLD);
+        let l = Style::default();
+        (b, b, b, b, l)
+    } else {
+        (
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::DarkGray),
+        )
+    };
+
     match app.tab {
         InlineTab::Day => Line::from(vec![
-            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
-            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
-            Span::styled("[Enter] ", app.theme.key_badge_style()),
-            Span::styled("Карта · ", app.theme.inactive_tab_style()),
-            Span::styled("[e] ", app.theme.key_badge_style()),
-            Span::styled("Изм · ", app.theme.inactive_tab_style()),
-            Span::styled("[a/A] ", app.theme.key_badge_style()),
-            Span::styled("Доб · ", app.theme.inactive_tab_style()),
-            Span::styled("[x] ", app.theme.key_badge_style()),
-            Span::styled("Удал · ", app.theme.inactive_tab_style()),
-            Span::styled("[m] ", app.theme.key_badge_style()),
-            Span::styled("Тема · ", app.theme.inactive_tab_style()),
-            Span::styled("[Space] ", app.theme.key_badge_style()),
-            Span::styled("Статус · ", app.theme.inactive_tab_style()),
-            Span::styled("[Tab] ", app.theme.key_badge_style()),
-            Span::styled("Режим ", app.theme.inactive_tab_style()),
+            Span::styled(" [↑/↓] ", key_yellow),
+            Span::styled("Выбор · ", label_style),
+            Span::styled("[Enter] ", key_cyan),
+            Span::styled("Карта · ", label_style),
+            Span::styled("[e] ", key_cyan),
+            Span::styled("Изм · ", label_style),
+            Span::styled("[a/A] ", key_green),
+            Span::styled("Доб · ", label_style),
+            Span::styled("[x] ", key_red),
+            Span::styled("Удал · ", label_style),
+            Span::styled("[m] ", key_cyan),
+            Span::styled("Тема · ", label_style),
+            Span::styled("[Space] ", key_yellow),
+            Span::styled("Статус · ", label_style),
+            Span::styled("[Tab] ", key_cyan),
+            Span::styled("Режим ", label_style),
         ]),
         InlineTab::Week => Line::from(vec![
-            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
-            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
-            Span::styled("[Enter] ", app.theme.key_badge_style()),
-            Span::styled("Карта · ", app.theme.inactive_tab_style()),
-            Span::styled("[e] ", app.theme.key_badge_style()),
-            Span::styled("Изм · ", app.theme.inactive_tab_style()),
-            Span::styled("[a] ", app.theme.key_badge_style()),
-            Span::styled("Доб · ", app.theme.inactive_tab_style()),
-            Span::styled("[x] ", app.theme.key_badge_style()),
-            Span::styled("Удал · ", app.theme.inactive_tab_style()),
-            Span::styled("[m] ", app.theme.key_badge_style()),
-            Span::styled("Тема · ", app.theme.inactive_tab_style()),
-            Span::styled("[Tab] ", app.theme.key_badge_style()),
-            Span::styled("Режим · ", app.theme.inactive_tab_style()),
-            Span::styled("[F] ", app.theme.key_badge_style()),
-            Span::styled("TUI ", app.theme.inactive_tab_style()),
+            Span::styled(" [↑/↓] ", key_yellow),
+            Span::styled("Выбор · ", label_style),
+            Span::styled("[Enter] ", key_cyan),
+            Span::styled("Карта · ", label_style),
+            Span::styled("[e] ", key_cyan),
+            Span::styled("Изм · ", label_style),
+            Span::styled("[a] ", key_green),
+            Span::styled("Доб · ", label_style),
+            Span::styled("[x] ", key_red),
+            Span::styled("Удал · ", label_style),
+            Span::styled("[m] ", key_cyan),
+            Span::styled("Тема · ", label_style),
+            Span::styled("[Tab] ", key_cyan),
+            Span::styled("Режим · ", label_style),
+            Span::styled("[F] ", key_cyan),
+            Span::styled("TUI ", label_style),
         ]),
         InlineTab::Search => Line::from(vec![
-            Span::styled(" [↑/↓] ", app.theme.key_badge_style()),
-            Span::styled("Выбор · ", app.theme.inactive_tab_style()),
-            Span::styled("[Enter] ", app.theme.key_badge_style()),
-            Span::styled("Карта · ", app.theme.inactive_tab_style()),
-            Span::styled("[e] ", app.theme.key_badge_style()),
-            Span::styled("Изм · ", app.theme.inactive_tab_style()),
-            Span::styled("[x] ", app.theme.key_badge_style()),
-            Span::styled("Удал · ", app.theme.inactive_tab_style()),
-            Span::styled("[m] ", app.theme.key_badge_style()),
-            Span::styled("Тема · ", app.theme.inactive_tab_style()),
-            Span::styled("[Esc] ", app.theme.key_badge_style()),
-            Span::styled("Сброс · ", app.theme.inactive_tab_style()),
-            Span::styled("[Tab] ", app.theme.key_badge_style()),
-            Span::styled("Режим ", app.theme.inactive_tab_style()),
+            Span::styled(" [↑/↓] ", key_yellow),
+            Span::styled("Выбор · ", label_style),
+            Span::styled("[Enter] ", key_cyan),
+            Span::styled("Карта · ", label_style),
+            Span::styled("[e] ", key_cyan),
+            Span::styled("Изм · ", label_style),
+            Span::styled("[x] ", key_red),
+            Span::styled("Удал · ", label_style),
+            Span::styled("[m] ", key_cyan),
+            Span::styled("Тема · ", label_style),
+            Span::styled("[Esc] ", key_yellow),
+            Span::styled("Сброс · ", label_style),
+            Span::styled("[Tab] ", key_cyan),
+            Span::styled("Режим ", label_style),
         ]),
     }
 }
@@ -528,38 +550,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_render_inline_headless_neo_and_plain() {
+    fn test_render_inline_headless_default_and_ascii() {
         let backend = TestBackend::new(90, 13);
         let mut terminal = Terminal::new(backend).unwrap();
 
         let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
 
-        // 1. Test Neo Theme
-        let app_neo = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Neo);
+        // 1. Test Default Theme
+        let app_default = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Default);
         terminal
             .draw(|frame| {
-                render_inline(frame, frame.area(), &app_neo);
+                render_inline(frame, frame.area(), &app_default);
             })
             .unwrap();
 
         let buffer = terminal.backend().buffer();
-        let text_neo = format!("{:?}", buffer);
-        assert!(text_neo.contains("1 ДЕНЬ"));
-        assert!(text_neo.contains("2 НЕДЕЛЯ"));
-        assert!(text_neo.contains("3 ПОИСК"));
-        assert!(text_neo.contains("Neo"));
+        let text_default = format!("{:?}", buffer);
+        assert!(text_default.contains("1 ДЕНЬ"));
+        assert!(text_default.contains("2 НЕДЕЛЯ"));
+        assert!(text_default.contains("3 ПОИСК"));
+        assert!(text_default.contains("Default"));
 
-        // 2. Test Plain Theme (ASCII)
-        let app_plain = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Plain);
+        // 2. Test Ascii Theme (ASCII)
+        let app_ascii = InlineApp::new(today, InlineTab::Day).with_theme(Theme::Ascii);
         terminal
             .draw(|frame| {
-                render_inline(frame, frame.area(), &app_plain);
+                render_inline(frame, frame.area(), &app_ascii);
             })
             .unwrap();
 
-        let buffer_plain = terminal.backend().buffer();
-        let text_plain = format!("{:?}", buffer_plain);
-        assert!(text_plain.contains("[D]"));
-        assert!(text_plain.contains("Plain"));
+        let buffer_ascii = terminal.backend().buffer();
+        let text_ascii = format!("{:?}", buffer_ascii);
+        assert!(text_ascii.contains("[D]"));
+        assert!(text_ascii.contains("ASCII"));
     }
 }

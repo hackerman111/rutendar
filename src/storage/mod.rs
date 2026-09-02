@@ -11,6 +11,7 @@ pub mod tags;
 pub mod tasks;
 
 pub use database::Database;
+pub use events::EventExportData;
 
 pub type StorageResult<T> = Result<T, Box<dyn Error>>;
 

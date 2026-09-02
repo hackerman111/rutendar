@@ -60,5 +60,6 @@ pub enum Action {
     PreviousTagFilter,
     NextTagFilter,
     ToggleTagFilter,
+    CycleTheme,
     Noop,
 }

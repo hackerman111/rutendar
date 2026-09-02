@@ -7,10 +7,18 @@ use ratatui::{
 };
 
 use super::link_bank::render_link_bank;
-use super::widgets::{FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, centered, centered_fixed};
-use crate::app::{App, Editor, Popup};
+use super::widgets::{
+    KEY_LABEL, centered, centered_fixed, theme_border_type, theme_focused, theme_selected,
+    theme_unfocused,
+};
+
+use crate::{
+    app::{App, Editor, Popup},
+    ui::Theme,
+};
 
 pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
+    let theme = app.config.ui.theme;
     match popup {
         Popup::Editor(editor) => render_editor(frame, area, app, editor),
         Popup::SaveConfirm { message, .. } | Popup::Confirm { message, .. } => {
@@ -20,33 +28,37 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                 Line::from(""),
                 Line::from(Span::styled(
                     format!("  {message}"),
-                    Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+                    theme.title_style(true, false),
                 )),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("[ Enter / y ]", KEY_BADGE),
-                    Span::styled(" ДА    ", Style::new().fg(Color::White)),
-                    Span::styled(
-                        "[ Esc / n ]",
-                        Style::new()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(" НЕТ", Style::new().fg(Color::DarkGray)),
+                    Span::styled("[ Enter / y ]", theme.key_badge_style()),
+                    Span::styled(" ДА    ", theme.title_style(false, false)),
+                    Span::styled("[ Esc / n ]", theme_unfocused(theme)),
+                    Span::styled(" НЕТ", theme_unfocused(theme)),
                 ]),
             ];
+            let border_color = if theme == Theme::Ascii {
+                Color::Reset
+            } else {
+                Color::LightRed
+            };
+            let title_style = if theme == Theme::Ascii {
+                Style::new().add_modifier(Modifier::BOLD)
+            } else {
+                Style::new()
+                    .fg(Color::Black)
+                    .bg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD)
+            };
+
             frame.render_widget(
                 Paragraph::new(lines).alignment(Alignment::Center).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(
-                            " ! ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ ",
-                            Style::new()
-                                .fg(Color::Black)
-                                .bg(Color::LightRed)
-                                .add_modifier(Modifier::BOLD),
-                        ))
-                        .border_style(Style::new().fg(Color::LightRed)),
+                        .border_type(theme_border_type(theme))
+                        .title(Span::styled(" ! ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ ", title_style))
+                        .border_style(Style::new().fg(border_color)),
                 ),
                 popup,
             );
@@ -57,32 +69,34 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
             let lines = vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("[ o ]", KEY_BADGE),
+                    Span::styled("[ o ]", theme.key_badge_style()),
                     Span::styled(
                         " ТОЛЬКО ЭТО СОБЫТИЕ (occurrence)",
-                        Style::new().fg(Color::White),
+                        theme.title_style(false, false),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("[ s ]", KEY_BADGE),
-                    Span::styled(" ВСЯ СЕРИЯ (entire series)", Style::new().fg(Color::White)),
-                ]),
-                Line::from(vec![
+                    Span::styled("[ s ]", theme.key_badge_style()),
                     Span::styled(
-                        "[ Esc ]",
-                        Style::new()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
+                        " ВСЯ СЕРИЯ (entire series)",
+                        theme.title_style(false, false),
                     ),
-                    Span::styled(" ОТМЕНА", Style::new().fg(Color::DarkGray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("[ Esc ]", theme_unfocused(theme)),
+                    Span::styled(" ОТМЕНА", theme_unfocused(theme)),
                 ]),
             ];
             frame.render_widget(
                 Paragraph::new(lines).alignment(Alignment::Left).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(" ОБЛАСТЬ ИЗМЕНЕНИЯ СЕРИИ ", SELECTED))
-                        .border_style(FOCUSED),
+                        .border_type(theme_border_type(theme))
+                        .title(Span::styled(
+                            " ОБЛАСТЬ ИЗМЕНЕНИЯ СЕРИИ ",
+                            theme_selected(theme),
+                        ))
+                        .border_style(theme_focused(theme)),
                 ),
                 popup,
             );
@@ -93,7 +107,7 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
             let lines = vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("  › [ ", Style::new().fg(Color::Cyan)),
+                    Span::styled("  › [ ", theme.time_style()),
                     Span::styled(
                         if value.is_empty() {
                             "DD.MM.YYYY"
@@ -101,26 +115,27 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                             value.as_str()
                         },
                         if value.is_empty() {
-                            Style::new().fg(Color::DarkGray)
+                            theme_unfocused(theme)
                         } else {
-                            Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+                            theme.title_style(true, false)
                         },
                     ),
-                    Span::styled(" █ ]", Style::new().fg(Color::Cyan)),
+                    Span::styled(" █ ]", theme.time_style()),
                 ]),
             ];
             frame.render_widget(
                 Paragraph::new(lines).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(" ПЕРЕХОД К ДАТЕ ", SELECTED))
-                        .border_style(FOCUSED),
+                        .border_type(theme_border_type(theme))
+                        .title(Span::styled(" ПЕРЕХОД К ДАТЕ ", theme_selected(theme)))
+                        .border_style(theme_focused(theme)),
                 ),
                 popup,
             );
         }
         Popup::LinkBank => render_link_bank(frame, area, app),
-        Popup::Help => render_help(frame, area),
+        Popup::Help => render_help(frame, area, app),
         Popup::MonthDayPreview { date, selected } => {
             super::month::render_month_day_preview(frame, area, app, *date, *selected);
         }
@@ -130,7 +145,7 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
             let lines = vec![
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("  › [ ", Style::new().fg(Color::Cyan)),
+                    Span::styled("  › [ ", theme.time_style()),
                     Span::styled(
                         if title.is_empty() {
                             "Введите название задания..."
@@ -138,20 +153,24 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
                             title.as_str()
                         },
                         if title.is_empty() {
-                            Style::new().fg(Color::DarkGray)
+                            theme_unfocused(theme)
                         } else {
-                            Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+                            theme.title_style(true, false)
                         },
                     ),
-                    Span::styled(" █ ]", Style::new().fg(Color::Cyan)),
+                    Span::styled(" █ ]", theme.time_style()),
                 ]),
             ];
             frame.render_widget(
                 Paragraph::new(lines).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(Span::styled(" НОВОЕ ЗАДАНИЕ (To-Do) ", SELECTED))
-                        .border_style(FOCUSED),
+                        .border_type(theme_border_type(theme))
+                        .title(Span::styled(
+                            " НОВОЕ ЗАДАНИЕ (To-Do) ",
+                            theme_selected(theme),
+                        ))
+                        .border_style(theme_focused(theme)),
                 ),
                 popup,
             );
@@ -160,6 +179,7 @@ pub fn render_popup(frame: &mut Frame, area: Rect, app: &App, popup: &Popup) {
 }
 
 pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) {
+    let theme = app.config.ui.theme;
     let popup = centered(area, 92, 90);
     frame.render_widget(Clear, popup);
     let event_fields;
@@ -203,9 +223,9 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
         .map(|(index, (label, value))| {
             let is_active = index == active;
             let label_style = if is_active {
-                SELECTED
+                theme_selected(theme)
             } else {
-                Style::new().fg(Color::DarkGray)
+                theme_unfocused(theme)
             };
 
             let formatted_label = if is_active {
@@ -216,21 +236,20 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
 
             let mut value_spans = Vec::new();
             if is_active {
-                value_spans.push(Span::styled(
-                    "› ",
-                    Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ));
+                let cursor = match theme {
+                    Theme::Default => "▸ ",
+                    Theme::Ascii => "> ",
+                };
+
+                value_spans.push(Span::styled(cursor, theme.key_badge_style()));
                 if label == "IMPORTANCE" || label == "REPEAT" {
                     value_spans.push(Span::styled(
                         format!("◄  {value}  ►"),
-                        Style::new()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
+                        theme_selected(theme),
                     ));
                     value_spans.push(Span::styled(
                         "  (Tab/←/→ переключить)",
-                        Style::new().fg(Color::DarkGray),
+                        theme_unfocused(theme),
                     ));
                 } else if label == "LINKS" {
                     value_spans.push(Span::styled(
@@ -239,25 +258,22 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
                         } else {
                             value
                         },
-                        Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+                        theme.title_style(true, false),
                     ));
                     value_spans.push(Span::styled(
                         "  (Enter/Ctrl+L — банк)",
-                        Style::new().fg(Color::DarkGray),
+                        theme_unfocused(theme),
                     ));
                 } else {
-                    value_spans.push(Span::styled(
-                        value,
-                        Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
-                    ));
-                    value_spans.push(Span::styled("█", Style::new().fg(Color::Cyan)));
+                    value_spans.push(Span::styled(value, theme.title_style(true, false)));
+                    value_spans.push(Span::styled("█", theme.time_style()));
                 }
             } else {
                 value_spans.push(Span::raw("  "));
                 if value.is_empty() {
-                    value_spans.push(Span::styled("(пусто)", Style::new().fg(Color::DarkGray)));
+                    value_spans.push(Span::styled("(пусто)", theme_unfocused(theme)));
                 } else {
-                    value_spans.push(Span::styled(value, Style::new().fg(Color::White)));
+                    value_spans.push(Span::styled(value, theme.title_style(false, false)));
                 }
             }
 
@@ -269,39 +285,31 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
         .collect::<Vec<_>>();
 
     let mut footer_spans = vec![
-        Span::styled("[Ctrl+S]", KEY_BADGE),
+        Span::styled("[Ctrl+S]", theme.key_badge_style()),
         Span::styled(" SAVE  ", KEY_LABEL),
-        Span::styled("[Enter]", KEY_BADGE),
+        Span::styled("[Enter]", theme.key_badge_style()),
         Span::styled(" NEXT/DONE  ", KEY_LABEL),
-        Span::styled("[Tab]", KEY_BADGE),
+        Span::styled("[Tab]", theme.key_badge_style()),
         Span::styled(" CHOICE  ", KEY_LABEL),
-        Span::styled("[C-L]", KEY_BADGE),
+        Span::styled("[C-L]", theme.key_badge_style()),
         Span::styled(" LINKS  ", KEY_LABEL),
-        Span::styled(
-            "[Esc]",
-            Style::new()
-                .fg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Esc]", theme_unfocused(theme)),
         Span::styled(" BACK", KEY_LABEL),
     ];
 
     if !app.state.tag_suggestions.is_empty() {
-        footer_spans.push(Span::styled(
-            " │ [AUTO]: ",
-            Style::new().fg(Color::DarkGray),
-        ));
+        footer_spans.push(Span::styled(" │ [AUTO]: ", theme_unfocused(theme)));
         for tag in &app.state.tag_suggestions {
-            footer_spans.push(Span::styled(format!(" #{} ", tag.name), SELECTED));
+            footer_spans.push(Span::styled(
+                format!(" #{} ", tag.name),
+                theme_selected(theme),
+            ));
             footer_spans.push(Span::raw(" "));
         }
     } else if !app.state.path_suggestions.is_empty() {
-        footer_spans.push(Span::styled(
-            " │ [AUTO]: ",
-            Style::new().fg(Color::DarkGray),
-        ));
+        footer_spans.push(Span::styled(" │ [AUTO]: ", theme_unfocused(theme)));
         for path in &app.state.path_suggestions {
-            footer_spans.push(Span::styled(format!(" {path} "), SELECTED));
+            footer_spans.push(Span::styled(format!(" {path} "), theme_selected(theme)));
             footer_spans.push(Span::raw(" "));
         }
     }
@@ -310,16 +318,18 @@ pub fn render_editor(frame: &mut Frame, area: Rect, app: &App, editor: &Editor) 
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Span::styled(title, SELECTED))
+                .border_type(theme_border_type(theme))
+                .title(Span::styled(title, theme_selected(theme)))
                 .title_bottom(Line::from(footer_spans))
-                .border_style(FOCUSED),
+                .border_style(theme_focused(theme)),
         ),
         popup,
     );
 }
 
-pub fn render_help(frame: &mut Frame, area: Rect) {
-    let popup = centered_fixed(area, 72, 29);
+pub fn render_help(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
+    let popup = centered_fixed(area, 72, 30);
     frame.render_widget(Clear, popup);
 
     let rows = [
@@ -357,6 +367,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ),
         ("X", "удалить выбранный тег из базы"),
         ("── ОБЩИЕ ────────────────────────────────", ""),
+        ("F5  /  M", "переключить тему оформления (Default / ASCII)"),
         ("?  /  q", "закрыть справку / выйти из приложения"),
         ("Ctrl+S (в редакторе)", "сохранить изменения"),
         ("Ctrl+L (в событии)", "открыть банк избранных ссылок"),
@@ -366,14 +377,11 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         .iter()
         .map(|(key, desc)| {
             if desc.is_empty() {
-                Line::from(Span::styled(*key, Style::new().fg(Color::DarkGray)))
+                Line::from(Span::styled(*key, theme_unfocused(theme)))
             } else {
                 Line::from(vec![
-                    Span::styled(
-                        format!("  {:<24}", key),
-                        Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(*desc, Style::new().fg(Color::White)),
+                    Span::styled(format!("  {:<24}", key), theme.key_badge_style()),
+                    Span::styled(*desc, theme.title_style(false, false)),
                 ])
             }
         })
@@ -383,11 +391,12 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(
                     " СПРАВКА ПО КЛАВИШАМ // QUICK REFERENCE ",
-                    SELECTED,
+                    theme_selected(theme),
                 ))
-                .border_style(FOCUSED),
+                .border_style(theme_focused(theme)),
         ),
         popup,
     );

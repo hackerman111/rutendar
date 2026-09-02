@@ -777,4 +777,55 @@ mod tests {
         assert!(notes[1].links.is_empty());
         Ok(())
     }
+
+    #[test]
+    fn all_events_for_export_loads_direct_and_recurring() -> StorageResult<()> {
+        let mut database = Database::in_memory()?;
+        database.create_event(
+            &NewEvent {
+                title: "Прямое событие".into(),
+                description: Some("Описание".into()),
+                start_date: date(2),
+                start_time: NaiveTime::from_hms_opt(10, 0, 0),
+                end_time: NaiveTime::from_hms_opt(11, 0, 0),
+                importance: Importance::High,
+                directory: None,
+            },
+            None,
+            &["тег1".into(), "тег2".into()],
+            &[],
+        )?;
+
+        database.create_event(
+            &NewEvent {
+                title: "Повторяющееся событие".into(),
+                description: None,
+                start_date: date(1),
+                start_time: None,
+                end_time: None,
+                importance: Importance::Normal,
+                directory: None,
+            },
+            Some(&NewRecurrence {
+                interval: 1,
+                weekdays: vec![Weekday::Mon],
+                start_date: date(1),
+                end_date: Some(date(30)),
+                count: None,
+            }),
+            &["работа".into()],
+            &[],
+        )?;
+
+        let export_data = database.all_events_for_export()?;
+        assert_eq!(export_data.len(), 2);
+        assert_eq!(export_data[0].event.title, "Повторяющееся событие");
+        assert!(export_data[0].recurrence.is_some());
+        assert_eq!(export_data[0].tags, vec!["работа"]);
+
+        assert_eq!(export_data[1].event.title, "Прямое событие");
+        assert!(export_data[1].recurrence.is_none());
+        assert_eq!(export_data[1].tags.len(), 2);
+        Ok(())
+    }
 }

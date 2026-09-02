@@ -6,10 +6,14 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
-use super::widgets::{FOCUSED, SELECTED, UNFOCUSED, styled_event_spans, styled_tags_line};
+use super::widgets::{
+    styled_event_spans, styled_tags_line, theme_border_type, theme_focused, theme_importance_style,
+    theme_selected, theme_unfocused,
+};
 use crate::{
     app::{App, FocusedPane},
     model::FavoriteLink,
+    ui::Theme,
 };
 
 pub fn render_day(frame: &mut Frame, area: Rect, app: &App) {
@@ -26,20 +30,30 @@ pub fn render_day(frame: &mut Frame, area: Rect, app: &App) {
     render_day_notes(frame, panes[1], app);
 }
 
-pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
-    let focused = app.state.focused_pane == FocusedPane::Events;
-    let events: Vec<_> = app.events_on_selected_date().collect();
-    let tasks: Vec<_> = app
+fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
+    let events = app
+        .state
+        .occurrences
+        .iter()
+        .filter(|event| event.date == app.state.selected_date)
+        .collect::<Vec<_>>();
+    let tasks = app
         .state
         .tasks
         .iter()
-        .filter(|t| t.date == Some(app.state.selected_date))
-        .collect();
-    let capacity = (area.height.saturating_sub(2) / 2).max(1) as usize;
-    let start = app
-        .state
-        .selected_event
-        .saturating_sub(capacity.saturating_sub(1));
+        .filter(|task| task.date == Some(app.state.selected_date))
+        .collect::<Vec<_>>();
+
+    let focused = app.state.focused_pane == FocusedPane::Events;
+    let capacity = area.height.saturating_sub(2).max(1) as usize;
+    let start = if focused {
+        app.state
+            .selected_event
+            .saturating_sub(capacity.saturating_sub(1))
+    } else {
+        0
+    };
 
     let mut all_items = Vec::new();
     for (index, event) in events.iter().enumerate() {
@@ -56,33 +70,21 @@ pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
     for (k, task) in tasks.iter().enumerate() {
         let idx = events.len() + k;
         let is_selected = focused && idx == app.state.selected_event;
-        let checkbox = if task.is_done {
-            Span::styled(
-                "[x] ",
-                Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::styled("[ ] ", Style::new().fg(Color::Yellow))
-        };
+        let checkbox = theme.task_checkbox_span(task.is_done);
         let imp_symbol = app.config.importance_symbol(task.importance);
         let imp_span = Span::styled(
             format!("{imp_symbol} "),
-            super::month::month_importance_style(task.importance),
+            theme_importance_style(theme, task.importance),
         );
         let title_style = if is_selected {
-            SELECTED
-        } else if task.is_done {
-            Style::new().fg(Color::DarkGray)
+            theme_selected(theme)
         } else {
-            Style::new().fg(Color::White)
+            theme.title_style(false, task.is_done)
         };
         let title_span = Span::styled(&task.title, title_style);
         let mut spans = vec![checkbox, imp_span, title_span];
         if let Some(desc) = &task.description {
-            spans.push(Span::styled(
-                format!(" ({desc})"),
-                Style::new().fg(Color::DarkGray),
-            ));
+            spans.push(Span::styled(format!(" ({desc})"), theme_unfocused(theme)));
         }
         all_items.push(ListItem::new(vec![Line::from(spans)]));
     }
@@ -103,25 +105,31 @@ pub fn render_day_events(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         let ev_count = events.len();
         let task_count = tasks.len();
+        let sep = if theme == Theme::Ascii { "|" } else { "│" };
         if focused {
-            format!(" СОБЫТИЯ ({ev_count}) │ ЗАДАНИЯ ({task_count}) ")
+            format!(" СОБЫТИЯ ({ev_count}) {sep} ЗАДАНИЯ ({task_count}) ")
         } else {
-            format!(" [ СОБЫТИЯ ({ev_count}) │ ЗАДАНИЯ ({task_count}) ] ")
+            format!(" [ СОБЫТИЯ ({ev_count}) {sep} ЗАДАНИЯ ({task_count}) ] ")
         }
     };
 
     let title_style = if focused {
-        SELECTED
+        theme_selected(theme)
     } else {
-        Style::new().fg(Color::DarkGray)
+        theme_unfocused(theme)
     };
 
     frame.render_widget(
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(title, title_style))
-                .border_style(if focused { FOCUSED } else { UNFOCUSED }),
+                .border_style(if focused {
+                    theme_focused(theme)
+                } else {
+                    theme_unfocused(theme)
+                }),
         ),
         area,
     );
@@ -151,6 +159,7 @@ fn styled_favorite_link_line(link: &FavoriteLink, is_selected: bool) -> Line<'st
 }
 
 pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -179,12 +188,14 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
             let is_selected = notes_focused && index == app.state.selected_note;
             let title = note.title.as_deref().unwrap_or("Без названия");
             let line = if is_selected {
+                let cursor = match theme {
+                    Theme::Default => "▸ ",
+                    Theme::Ascii => "> ",
+                };
+
                 Line::from(Span::styled(
-                    format!("▸ {title} "),
-                    Style::new()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    format!("{cursor}{title} "),
+                    theme_selected(theme),
                 ))
             } else {
                 Line::from(vec![
@@ -192,9 +203,9 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
                     Span::styled(
                         title,
                         if note.title.is_some() {
-                            Style::new().fg(Color::White)
+                            theme.title_style(false, false)
                         } else {
-                            Style::new().fg(Color::DarkGray)
+                            theme_unfocused(theme)
                         },
                     ),
                 ])
@@ -209,17 +220,22 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         format!(" [ ЗАМЕТКИ ] ({total_notes}) ")
     };
     let notes_title_style = if notes_focused {
-        SELECTED
+        theme_selected(theme)
     } else {
-        Style::new().fg(Color::DarkGray)
+        theme_unfocused(theme)
     };
 
     frame.render_widget(
         List::new(note_items).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(notes_title, notes_title_style))
-                .border_style(if notes_focused { FOCUSED } else { UNFOCUSED }),
+                .border_style(if notes_focused {
+                    theme_focused(theme)
+                } else {
+                    theme_unfocused(theme)
+                }),
         ),
         rows[0],
     );
@@ -248,8 +264,9 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(body_text).wrap(Wrap { trim: false }).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Span::styled(body_title, Style::new().fg(Color::DarkGray)))
-                .border_style(UNFOCUSED),
+                .border_type(theme_border_type(theme))
+                .title(Span::styled(body_title, theme_unfocused(theme)))
+                .border_style(theme_unfocused(theme)),
         ),
         rows[1],
     );
@@ -260,6 +277,16 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         .state
         .selected_link
         .saturating_sub(link_capacity.saturating_sub(1));
+
+    let cursor = match theme {
+        Theme::Default => "▸ ",
+        Theme::Ascii => "> ",
+    };
+    let link_icon = if theme == Theme::Ascii {
+        "[L] "
+    } else {
+        "🔗 "
+    };
 
     let (total_links, links): (usize, Vec<ListItem>) =
         if event_mode && let Some(event) = selected_event {
@@ -274,18 +301,15 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
                     let is_selected = links_focused && index == app.state.selected_link;
                     let line = if is_selected {
                         Line::from(Span::styled(
-                            format!("▸ 🔗 {} › {} ", link.label, link.url),
-                            Style::new()
-                                .fg(Color::Black)
-                                .bg(Color::Cyan)
-                                .add_modifier(Modifier::BOLD),
+                            format!("{cursor}{link_icon}{} › {} ", link.label, link.url),
+                            theme_selected(theme),
                         ))
                     } else {
                         Line::from(vec![
-                            Span::raw("  🔗 "),
-                            Span::styled(&link.label, Style::new().fg(Color::White)),
-                            Span::styled(" › ", Style::new().fg(Color::DarkGray)),
-                            Span::styled(&link.url, Style::new().fg(Color::Cyan)),
+                            Span::raw(format!("  {link_icon}")),
+                            Span::styled(&link.label, theme.title_style(false, false)),
+                            Span::styled(" › ", theme_unfocused(theme)),
+                            Span::styled(&link.url, theme.time_style()),
                         ])
                     };
                     ListItem::new(line)
@@ -305,18 +329,15 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
                             let is_selected = links_focused && index == app.state.selected_link;
                             let line = if is_selected {
                                 Line::from(Span::styled(
-                                    format!("▸ 🔗 {} › {} ", link.label, link.url),
-                                    Style::new()
-                                        .fg(Color::Black)
-                                        .bg(Color::Cyan)
-                                        .add_modifier(Modifier::BOLD),
+                                    format!("{cursor}{link_icon}{} › {} ", link.label, link.url),
+                                    theme_selected(theme),
                                 ))
                             } else {
                                 Line::from(vec![
-                                    Span::raw("  🔗 "),
-                                    Span::styled(&link.label, Style::new().fg(Color::White)),
-                                    Span::styled(" › ", Style::new().fg(Color::DarkGray)),
-                                    Span::styled(&link.url, Style::new().fg(Color::Cyan)),
+                                    Span::raw(format!("  {link_icon}")),
+                                    Span::styled(&link.label, theme.title_style(false, false)),
+                                    Span::styled(" › ", theme_unfocused(theme)),
+                                    Span::styled(&link.url, theme.time_style()),
                                 ])
                             };
                             ListItem::new(line)
@@ -333,17 +354,22 @@ pub fn render_day_notes(frame: &mut Frame, area: Rect, app: &App) {
         format!(" [ ССЫЛКИ ] ({total_links}) ")
     };
     let links_title_style = if links_focused {
-        SELECTED
+        theme_selected(theme)
     } else {
-        Style::new().fg(Color::DarkGray)
+        theme_unfocused(theme)
     };
 
     frame.render_widget(
         List::new(links).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(links_title, links_title_style))
-                .border_style(if links_focused { FOCUSED } else { UNFOCUSED }),
+                .border_style(if links_focused {
+                    theme_focused(theme)
+                } else {
+                    theme_unfocused(theme)
+                }),
         ),
         rows[2],
     );

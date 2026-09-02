@@ -2,15 +2,18 @@ use chrono::Datelike;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
-use super::widgets::{SELECTED, TODAY, TODAY_BADGE, calendar_border_style, month_name};
-use crate::{app::App, model::Importance};
+use super::widgets::{
+    month_name, theme_border_type, theme_calendar_border_style, theme_selected, theme_today,
+    theme_today_badge, theme_unfocused,
+};
+use crate::{app::App, model::Importance, ui::Theme};
 
 pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Ratio(1, 4); 4])
@@ -43,54 +46,62 @@ pub fn render_year(frame: &mut Frame, area: Rect, app: &App) {
             let title_line = if selected {
                 Line::from(vec![Span::styled(
                     format!(" {:02} · {} ", month, month_name(month)),
-                    SELECTED,
+                    theme_selected(theme),
                 )])
             } else if is_today_month {
+                let today_str = if theme == Theme::Ascii {
+                    " [TODAY] "
+                } else {
+                    " TODAY "
+                };
+
                 Line::from(vec![
                     Span::styled(
                         format!(" {:02} · {} ", month, month_name(month)),
-                        TODAY_BADGE,
+                        theme_today_badge(theme),
                     ),
-                    Span::styled(" TODAY ", TODAY),
+                    Span::styled(today_str, theme_today(theme)),
                 ])
             } else {
                 Line::from(vec![Span::styled(
                     format!(" [{:02} · {}] ", month, month_name(month)),
-                    Style::new().fg(Color::DarkGray),
+                    theme_unfocused(theme),
                 )])
             };
 
             let lines = vec![
                 Line::from(vec![
-                    Span::styled("  СОБЫТИЯ  ", Style::new().fg(Color::DarkGray)),
+                    Span::styled("  СОБЫТИЯ  ", theme_unfocused(theme)),
                     Span::styled(
                         format!("{events:>3} "),
                         if events > 0 {
-                            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                            theme.title_style(true, false)
                         } else {
-                            Style::new().fg(Color::DarkGray)
+                            theme_unfocused(theme)
                         },
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("  ЗАМЕТКИ  ", Style::new().fg(Color::DarkGray)),
+                    Span::styled("  ЗАМЕТКИ  ", theme_unfocused(theme)),
                     Span::styled(
                         format!("{notes:>3} "),
                         if notes > 0 {
-                            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                            theme.key_badge_style()
                         } else {
-                            Style::new().fg(Color::DarkGray)
+                            theme_unfocused(theme)
                         },
                     ),
                 ]),
             ];
 
-            let border_style = calendar_border_style(selected, is_today_month, has_high_importance);
+            let border_style =
+                theme_calendar_border_style(theme, selected, is_today_month, has_high_importance);
 
             frame.render_widget(
                 Paragraph::new(lines).alignment(Alignment::Left).block(
                     Block::default()
                         .borders(Borders::ALL)
+                        .border_type(theme_border_type(theme))
                         .title(title_line)
                         .border_style(border_style),
                 ),

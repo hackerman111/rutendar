@@ -8,7 +8,9 @@ use ratatui::{
 use crate::{
     app::App,
     model::{EventOccurrence, Importance},
+    ui::Theme,
 };
+use ratatui::widgets::BorderType;
 
 // Neo 80 Theme Palette & Tokens
 pub const COLOR_ACCENT: Color = Color::Cyan;
@@ -45,12 +47,89 @@ pub const KEY_BADGE: Style = Style::new().fg(Color::Yellow).add_modifier(Modifie
 
 pub const KEY_LABEL: Style = Style::new().fg(Color::DarkGray);
 
+pub fn theme_selected(theme: Theme) -> Style {
+    theme.selection_style()
+}
+
+pub fn theme_focused(theme: Theme) -> Style {
+    match theme {
+        Theme::Default => FOCUSED,
+        Theme::Ascii => Style::new().add_modifier(Modifier::BOLD),
+    }
+}
+
+pub fn theme_unfocused(theme: Theme) -> Style {
+    match theme {
+        Theme::Default => UNFOCUSED,
+        Theme::Ascii => Style::new(),
+    }
+}
+
+pub fn theme_border_type(theme: Theme) -> BorderType {
+    theme.border_type()
+}
+
+pub fn theme_border_color(theme: Theme, is_focused: bool) -> Color {
+    if is_focused {
+        match theme {
+            Theme::Default => Color::Cyan,
+            Theme::Ascii => Color::Reset,
+        }
+    } else {
+        match theme {
+            Theme::Default => Color::DarkGray,
+            Theme::Ascii => Color::Reset,
+        }
+    }
+}
+
+pub fn theme_today(theme: Theme) -> Style {
+    match theme {
+        Theme::Default => TODAY,
+        Theme::Ascii => Style::new().add_modifier(Modifier::BOLD),
+    }
+}
+
+pub fn theme_today_badge(theme: Theme) -> Style {
+    theme.active_tab_style()
+}
+
+pub fn theme_importance_style(theme: Theme, importance: Importance) -> Style {
+    match theme {
+        Theme::Ascii => match importance {
+            Importance::High => Style::new().add_modifier(Modifier::BOLD),
+            _ => Style::new(),
+        },
+        Theme::Default => importance_style(importance),
+    }
+}
+
+pub fn theme_calendar_border_style(
+    theme: Theme,
+    selected: bool,
+    current: bool,
+    has_high_importance: bool,
+) -> Style {
+    match theme {
+        Theme::Ascii => {
+            if selected {
+                theme_selected(theme)
+            } else if current || has_high_importance {
+                Style::new().add_modifier(Modifier::BOLD)
+            } else {
+                Style::new()
+            }
+        }
+        Theme::Default => calendar_border_style(selected, current, has_high_importance),
+    }
+}
+
 pub fn importance_style(importance: Importance) -> Style {
     match importance {
         Importance::High => Style::new().fg(COLOR_CRIT).add_modifier(Modifier::BOLD),
         Importance::Normal => Style::new().fg(COLOR_ACCENT),
-        Importance::Low => Style::new().fg(COLOR_MUTED),
-        Importance::None => Style::new().fg(COLOR_MUTED),
+        Importance::Low => Style::new().fg(Color::Gray),
+        Importance::None => Style::new().fg(Color::DarkGray),
     }
 }
 
@@ -85,25 +164,32 @@ pub fn styled_event_spans(
     event: &EventOccurrence,
     is_selected: bool,
 ) -> Vec<Span<'static>> {
+    let theme = app.config.ui.theme;
     let mut spans = Vec::new();
-    let sel_style = Style::new()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let sel_style = theme_selected(theme);
 
     if is_selected {
-        spans.push(Span::styled("▸ ", sel_style));
+        let marker = match theme {
+            Theme::Default => " ▸ ",
+            Theme::Ascii => "> ",
+        };
+        spans.push(Span::styled(marker, sel_style));
     } else {
         spans.push(Span::raw("  "));
     }
 
     if event.is_recurring {
+        let rec_sym = if theme == Theme::Ascii {
+            "(R) "
+        } else {
+            "↻ "
+        };
         let style = if is_selected {
             sel_style
         } else {
-            Style::new().fg(COLOR_MUTED)
+            theme_unfocused(theme)
         };
-        spans.push(Span::styled("↻ ", style));
+        spans.push(Span::styled(rec_sym, style));
     }
 
     let sym = app.config.importance_symbol(event.importance);
@@ -111,9 +197,22 @@ pub fn styled_event_spans(
         let style = if is_selected {
             sel_style
         } else {
-            importance_style(event.importance)
+            theme_importance_style(theme, event.importance)
         };
-        spans.push(Span::styled(format!("{sym} "), style));
+        let disp_sym = if theme == Theme::Ascii {
+            match event.importance {
+                Importance::High => "[!] ",
+                Importance::Normal => "[.] ",
+                Importance::Low => "[-] ",
+                Importance::None => "    ",
+            }
+        } else {
+            sym
+        };
+        spans.push(Span::styled(disp_sym.to_string(), style));
+        if theme != Theme::Ascii {
+            spans.push(Span::raw(" "));
+        }
     }
 
     let time_str = event
@@ -124,22 +223,23 @@ pub fn styled_event_spans(
     let time_style = if is_selected {
         sel_style
     } else if event.start_time.is_some() {
-        TIME_STYLE
+        theme.time_style()
     } else {
-        TIME_DIM
+        theme_unfocused(theme)
     };
     spans.push(Span::styled(format!("{time_str} "), time_style));
 
     let title_style = if is_selected {
         sel_style
     } else {
-        Style::new().fg(COLOR_TEXT)
+        theme.title_style(false, false)
     };
     spans.push(Span::styled(format!("{} ", event.title), title_style));
 
     if !event.favorite_links.is_empty() {
+        let link_icon = if theme == Theme::Ascii { "[L]" } else { "🔗" };
         spans.push(Span::styled(
-            format!("🔗{} ", event.favorite_links.len()),
+            format!("{link_icon}{} ", event.favorite_links.len()),
             if is_selected {
                 sel_style
             } else {
@@ -148,8 +248,13 @@ pub fn styled_event_spans(
         ));
     }
     if event.directory.is_some() {
+        let dir_icon = if theme == Theme::Ascii {
+            "[dir] "
+        } else {
+            "📁 "
+        };
         spans.push(Span::styled(
-            "📁 ",
+            dir_icon,
             if is_selected {
                 sel_style
             } else {
@@ -196,30 +301,26 @@ pub fn relative_event(app: &App, event: &EventOccurrence) -> String {
 }
 
 pub fn styled_relative_event_spans(app: &App, event: &EventOccurrence) -> Vec<Span<'static>> {
+    let theme = app.config.ui.theme;
     let mut spans = Vec::new();
     let date = relative_date(app.state.today, event.date);
     if !date.is_empty() {
-        spans.push(Span::styled(
-            date,
-            Style::new()
-                .fg(COLOR_ACCENT_ALT)
-                .add_modifier(Modifier::BOLD),
-        ));
+        spans.push(Span::styled(date, theme.key_badge_style()));
     }
     if let Some(time) = event.start_time {
-        spans.push(Span::styled(time.format("%H:%M ").to_string(), TIME_STYLE));
+        spans.push(Span::styled(
+            time.format("%H:%M ").to_string(),
+            theme.time_style(),
+        ));
     }
     let sym = app.config.importance_symbol(event.importance);
     if !sym.trim().is_empty() {
-        spans.push(Span::styled(
-            sym.to_string(),
-            importance_style(event.importance),
-        ));
-        spans.push(Span::raw(" "));
+        let imp_span = theme.importance_span(event.importance);
+        spans.push(Span::styled(imp_span.content, imp_span.style));
     }
     spans.push(Span::styled(
         event.title.clone(),
-        Style::new().fg(COLOR_TEXT),
+        theme.title_style(false, false),
     ));
     spans
 }

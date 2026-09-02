@@ -1,18 +1,21 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
 };
 
-use super::widgets::{FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, UNFOCUSED, centered};
-use crate::app::App;
+use super::widgets::{
+    KEY_LABEL, centered, theme_border_type, theme_focused, theme_selected, theme_unfocused,
+};
+use crate::{app::App, ui::Theme};
 
 pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
     let Some(bank) = app.state.link_bank.as_ref() else {
         return;
     };
+    let theme = app.config.ui.theme;
     let popup = centered(area, 92, 86);
     frame.render_widget(Clear, popup);
     let rows = Layout::default()
@@ -22,31 +25,26 @@ pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
 
     let search_content = if bank.searching {
         Line::from(vec![
-            Span::styled(
-                "› ",
-                Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &bank.query,
-                Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("█", Style::new().fg(Color::Cyan)),
+            Span::styled("› ", theme.key_badge_style()),
+            Span::styled(&bank.query, theme.title_style(true, false)),
+            Span::styled("█", theme.time_style()),
         ])
     } else if bank.query.is_empty() {
         Line::from(Span::styled(
             "› Нажмите / для поиска по тегам и описанию...",
-            Style::new().fg(Color::DarkGray),
+            theme_unfocused(theme),
         ))
     } else {
         Line::from(vec![
-            Span::styled("› ", Style::new().fg(Color::Cyan)),
-            Span::styled(&bank.query, Style::new().fg(Color::White)),
+            Span::styled("› ", theme.time_style()),
+            Span::styled(&bank.query, theme.title_style(false, false)),
         ])
     };
     frame.render_widget(
         Paragraph::new(search_content).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(
                     if bank.searching {
                         " ПОИСК: АКТИВЕН "
@@ -54,12 +52,16 @@ pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
                         " ПОИСК "
                     },
                     if bank.searching {
-                        SELECTED
+                        theme_selected(theme)
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        theme_unfocused(theme)
                     },
                 ))
-                .border_style(if bank.searching { FOCUSED } else { UNFOCUSED }),
+                .border_style(if bank.searching {
+                    theme_focused(theme)
+                } else {
+                    theme_unfocused(theme)
+                }),
         ),
         rows[0],
     );
@@ -76,13 +78,19 @@ pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
         .map(|(index, link)| {
             let row_selected = index == bank.selected;
             let style = if row_selected {
-                SELECTED
+                theme_selected(theme)
             } else {
                 Style::default()
             };
+            let check_icon = if theme == Theme::Ascii {
+                "[v]"
+            } else {
+                " ✓ "
+            };
+
             Row::new([
                 Cell::from(if selected_ids.contains(&link.id) {
-                    " ✓ "
+                    check_icon
                 } else {
                     "   "
                 }),
@@ -96,17 +104,20 @@ pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
         .collect::<Vec<_>>();
 
     let footer = Line::from(vec![
-        Span::styled("[Enter/Space]", KEY_BADGE),
+        Span::styled("[Enter/Space]", theme.key_badge_style()),
         Span::styled(" LINK  ", KEY_LABEL),
-        Span::styled("[a]", KEY_BADGE),
+        Span::styled("[a]", theme.key_badge_style()),
         Span::styled(" NEW  ", KEY_LABEL),
-        Span::styled("[e]", KEY_BADGE),
+        Span::styled("[e]", theme.key_badge_style()),
         Span::styled(" EDIT  ", KEY_LABEL),
-        Span::styled(format!("[{}]", app.config.keys.open_link), KEY_BADGE),
+        Span::styled(
+            format!("[{}]", app.config.keys.open_link),
+            theme.key_badge_style(),
+        ),
         Span::styled(" OPEN  ", KEY_LABEL),
-        Span::styled("[/]", KEY_BADGE),
+        Span::styled("[/]", theme.key_badge_style()),
         Span::styled(" SEARCH  ", KEY_LABEL),
-        Span::styled("[Esc]", KEY_BADGE),
+        Span::styled("[Esc]", theme_unfocused(theme)),
         Span::styled(" BACK", KEY_LABEL),
     ]);
     frame.render_widget(
@@ -120,19 +131,17 @@ pub fn render_link_bank(frame: &mut Frame, area: Rect, app: &App) {
                 Constraint::Percentage(35),
             ],
         )
-        .header(
-            Row::new(["", "ССЫЛКА", "ТЕГИ", "ОПИСАНИЕ", "URL"])
-                .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        )
+        .header(Row::new(["", "ССЫЛКА", "ТЕГИ", "ОПИСАНИЕ", "URL"]).style(theme.time_style()))
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(Span::styled(
                     format!(" БАНК ИЗБРАННЫХ ССЫЛОК // RESULTS: {} ", bank.items.len()),
-                    SELECTED,
+                    theme_selected(theme),
                 ))
                 .title_bottom(footer)
-                .border_style(FOCUSED),
+                .border_style(theme_focused(theme)),
         ),
         rows[1],
     );

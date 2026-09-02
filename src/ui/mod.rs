@@ -15,7 +15,6 @@ use chrono::Datelike;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -27,9 +26,10 @@ use self::{
     popup::render_popup,
     upcoming::render_upcoming,
     week::render_week,
-    widgets::{SELECTED, month_name, weekday_long},
+    widgets::{month_name, weekday_long},
     year::render_year,
 };
+
 use crate::{
     app::{App, InputMode, Overlay, View},
     calendar::{week_end, week_start},
@@ -67,6 +67,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let title = match app.state.active_view {
         View::Week => {
             let range = format!(
@@ -102,41 +103,48 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let mut spans = vec![
-        Span::styled(
-            " RUTENDAR ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" RUTENDAR ", theme.active_tab_style()),
         Span::raw(" "),
     ];
 
     // View tabs
     for view in [View::Week, View::Day, View::Month, View::Year] {
         if app.state.active_view == view {
-            spans.push(Span::styled(format!(" {} ", view.label()), SELECTED));
+            spans.push(Span::styled(
+                format!(" {} ", view.label()),
+                widgets::theme_selected(theme),
+            ));
         } else {
             spans.push(Span::styled(
                 format!(" {} ", view.label()),
-                Style::new().fg(Color::DarkGray),
+                widgets::theme_unfocused(theme),
             ));
         }
     }
 
-    spans.push(Span::styled(" │ ", Style::new().fg(Color::DarkGray)));
-    spans.push(Span::styled(
-        title,
-        Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
-    ));
+    let sep = if theme == Theme::Ascii {
+        " | "
+    } else {
+        " │ "
+    };
 
-    // Right-aligned today indicator if width permits
-    let today_str = format!(" TODAY: {} ", app.state.today.format("%d.%m"));
+    spans.push(Span::styled(sep, widgets::theme_unfocused(theme)));
+    spans.push(Span::styled(title, theme.title_style(true, false)));
+
+    // Right-aligned today indicator + Theme badge if width permits
+    let theme_str = format!("[F5: {}] ", theme.name());
+    let today_str = format!(
+        "{} TODAY: {} ",
+        theme.date_icon(),
+        app.state.today.format("%d.%m")
+    );
+    let right_info = format!("{theme_str}{today_str}");
     let current_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    if (area.width as usize).saturating_sub(4) > current_len + today_str.len() {
-        let padding = (area.width as usize).saturating_sub(4) - current_len - today_str.len();
+    if (area.width as usize).saturating_sub(4) > current_len + right_info.len() {
+        let padding = (area.width as usize).saturating_sub(4) - current_len - right_info.len();
         spans.push(Span::raw(" ".repeat(padding)));
-        spans.push(Span::styled(today_str, Style::new().fg(Color::DarkGray)));
+        spans.push(Span::styled(theme_str, theme.key_badge_style()));
+        spans.push(Span::styled(today_str, widgets::theme_unfocused(theme)));
     }
 
     frame.render_widget(
@@ -145,26 +153,24 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::new().fg(Color::DarkGray)),
+                    .border_type(widgets::theme_border_type(theme))
+                    .border_style(widgets::theme_unfocused(theme)),
             ),
         area,
     );
 }
 
 fn render_next(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let mut spans = vec![
-        Span::styled(
-            " NEXT ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(" NEXT ", theme.active_tab_style()),
         Span::raw(" "),
     ];
 
     let mut shown = 0;
     let mut current_len = 7; // " NEXT " + " "
+
+    let sep = if theme == Theme::Ascii { " - " } else { " · " };
 
     for event in &app.state.next {
         if shown >= app.config.agenda.next_events {
@@ -172,7 +178,7 @@ fn render_next(frame: &mut Frame, area: Rect, app: &App) {
         }
         let event_spans = widgets::styled_relative_event_spans(app, event);
         let event_char_len: usize = event_spans.iter().map(|s| s.content.chars().count()).sum();
-        let sep_len = if shown == 0 { 0 } else { 3 }; // " · "
+        let sep_len = if shown == 0 { 0 } else { sep.len() };
         let reserve = 10;
 
         if current_len + sep_len + event_char_len + reserve > area.width as usize {
@@ -180,8 +186,8 @@ fn render_next(frame: &mut Frame, area: Rect, app: &App) {
         }
 
         if shown > 0 {
-            spans.push(Span::styled(" · ", Style::new().fg(Color::DarkGray)));
-            current_len += 3;
+            spans.push(Span::styled(sep, widgets::theme_unfocused(theme)));
+            current_len += sep.len();
         }
         spans.extend(event_spans);
         current_len += event_char_len;
@@ -192,7 +198,7 @@ fn render_next(frame: &mut Frame, area: Rect, app: &App) {
     if remaining > 0 {
         spans.push(Span::styled(
             format!(" [+{remaining}]"),
-            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            theme.key_badge_style(),
         ));
     }
 
@@ -200,71 +206,20 @@ fn render_next(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status(frame: &mut Frame, area: Rect, app: &App) {
-    let (mode_text, mode_style) = match app.state.input_mode {
-        InputMode::Normal => (
-            " NORMAL ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::Editor => (
-            " EDIT ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::Search => (
-            " SEARCH ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::LinkBank => (
-            " LINKS ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::LinkSearch => (
-            " LINK SEARCH ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::Confirm => (
-            " CONFIRM ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::Scope => (
-            " SCOPE ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Magenta)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::GotoDate => (
-            " DATE ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        InputMode::CreateTask => (
-            " TASK ",
-            Style::new()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
+    let theme = app.config.ui.theme;
+    let mode_text = match app.state.input_mode {
+        InputMode::Normal => " NORMAL ",
+        InputMode::Editor => " EDIT ",
+        InputMode::Search => " SEARCH ",
+        InputMode::LinkBank => " LINKS ",
+        InputMode::LinkSearch => " LINK SEARCH ",
+        InputMode::Confirm => " CONFIRM ",
+        InputMode::Scope => " SCOPE ",
+        InputMode::GotoDate => " DATE ",
+        InputMode::CreateTask => " TASK ",
     };
+
+    let mode_style = theme.active_tab_style();
 
     let mut spans = vec![
         Span::styled(mode_text, mode_style),
@@ -274,23 +229,34 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App) {
                 app.state.active_view.label(),
                 app.state.selected_date.format("%d.%m.%Y")
             ),
-            Style::new().fg(Color::White),
+            theme.title_style(false, false),
         ),
     ];
 
+    let sep = if theme == Theme::Ascii { "| " } else { "│ " };
     if let Some(status) = &app.state.status_message {
-        spans.push(Span::styled("│ ", Style::new().fg(Color::DarkGray)));
-        spans.push(Span::styled(
-            status.clone(),
-            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ));
+        spans.push(Span::styled(sep, widgets::theme_unfocused(theme)));
+        spans.push(Span::styled(status.clone(), theme.key_badge_style()));
         spans.push(Span::raw(" "));
     }
 
+    spans.push(Span::styled(
+        format!("[F5: {}] ", theme.name()),
+        theme.active_tab_style(),
+    ));
+
     let hints = [
         ("a", "ADD"),
+        ("T", "TODO"),
+        ("Space", "CHECK"),
+        ("e", "EDIT"),
+        ("d/x", "DEL"),
+        ("p", "PRIORITY"),
+        ("o", "PREVIEW"),
+        ("y", "LINK"),
         ("n", "NEXT DAY"),
         ("Tab", "PANES"),
+        ("F5", "THEME"),
         ("/", "AGENDA"),
         ("?", "HELP"),
         ("q", "QUIT"),
@@ -298,13 +264,10 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App) {
 
     let mut hints_spans = Vec::new();
     for (key, label) in hints {
-        hints_spans.push(Span::styled(
-            format!("[{key}]"),
-            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ));
+        hints_spans.push(Span::styled(format!("[{key}]"), theme.key_badge_style()));
         hints_spans.push(Span::styled(
             format!(" {label} "),
-            Style::new().fg(Color::DarkGray),
+            widgets::theme_unfocused(theme),
         ));
     }
 
@@ -318,4 +281,93 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::{DeleteTarget, Editor, EventForm, EventTarget, Popup, state::ScopeOperation},
+        config::Config,
+        storage::Database,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn test_render_all_views_and_themes_headless() {
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        for theme in [Theme::Default, Theme::Ascii] {
+            app.config.ui.theme = theme;
+
+            // 1. Week view
+            app.state.active_view = View::Week;
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            // 2. Day view
+            app.state.active_view = View::Day;
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            // 3. Month view
+            app.state.active_view = View::Month;
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            // 4. Year view
+            app.state.active_view = View::Year;
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            // 5. Overlays
+            app.state.overlay = Some(Overlay::Agenda);
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.overlay = Some(Overlay::Upcoming);
+            terminal.draw(|f| render(f, &app)).unwrap();
+            app.state.overlay = None;
+
+            // 6. Popups
+            app.state.popup = Some(Popup::Help);
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.popup = Some(Popup::Confirm {
+                message: "Удалить элемент?".into(),
+                target: DeleteTarget::Note(1),
+            });
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            let occ = crate::model::EventOccurrence {
+                event_id: 1,
+                date: app.state.today,
+                title: "Событие".into(),
+                description: None,
+                directory: None,
+                start_time: None,
+                end_time: None,
+                importance: crate::model::Importance::Normal,
+                tags: Vec::new(),
+                is_recurring: true,
+                recurrence_id: Some(1),
+                original_date: app.state.today,
+                favorite_links: Vec::new(),
+            };
+            app.state.popup = Some(Popup::Scope(ScopeOperation::Delete(occ)));
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.popup = Some(Popup::GotoDate("2026-09-03".into()));
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.popup = Some(Popup::CreateTask("Сделать задачу".into()));
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.popup = Some(Popup::Editor(Editor::Event {
+                target: EventTarget::New,
+                form: EventForm::new(app.state.today),
+            }));
+            terminal.draw(|f| render(f, &app)).unwrap();
+
+            app.state.popup = None;
+        }
+    }
 }

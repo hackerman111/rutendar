@@ -10,9 +10,9 @@ pub mod task;
 use std::path::PathBuf;
 
 pub use add::{AddArgs, run_add};
-pub use export::run_export;
+pub use export::{run_export, run_export_ics};
 pub use format::{format_day_summary, format_event_card};
-pub use import::run_import;
+pub use import::{run_import, run_import_ics};
 pub use inline::{InlineOutcome, run_inline};
 pub use list::{Period, run_list};
 pub use note_export::{NotesPeriod, run_notes_export, run_notes_menu};
@@ -25,9 +25,13 @@ pub enum CliCommand {
     List(Option<Period>),
     Add(AddArgs),
     Export(Option<PathBuf>),
+    ExportIcs(Option<PathBuf>),
     Import {
         path: PathBuf,
         force: bool,
+    },
+    ImportIcs {
+        path: PathBuf,
     },
     TaskMenu,
     TaskAdd(TaskAddArgs),
@@ -61,9 +65,27 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
             let add_args = AddArgs::parse_from(&args[1..]);
             Ok(Some(CliCommand::Add(add_args)))
         }
+        "--export-ics" | "-E" | "export-ics" => {
+            let path = args.get(1).map(PathBuf::from);
+            Ok(Some(CliCommand::ExportIcs(path)))
+        }
         "--export" | "-e" | "export" => {
             let path = args.get(1).map(PathBuf::from);
+            if let Some(p) = &path
+                && p.extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ics"))
+            {
+                return Ok(Some(CliCommand::ExportIcs(path)));
+            }
             Ok(Some(CliCommand::Export(path)))
+        }
+        "--import-ics" | "-I" | "import-ics" => {
+            let Some(path) = args.get(1).map(PathBuf::from) else {
+                return Err(
+                    "укажите путь к файлу .ics для импорта: rutendar --import-ics <ФАЙЛ>".into(),
+                );
+            };
+            Ok(Some(CliCommand::ImportIcs { path }))
         }
         "--import" | "-i" | "import" => {
             let mut path = None;
@@ -80,6 +102,12 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
                     "укажите путь к файлу базы данных для импорта: rutendar --import <ФАЙЛ>".into(),
                 );
             };
+            if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ics"))
+            {
+                return Ok(Some(CliCommand::ImportIcs { path }));
+            }
             Ok(Some(CliCommand::Import { path, force }))
         }
         "--task" | "-t" | "task" => {
@@ -277,9 +305,8 @@ pub fn extract_theme_arg(args: &mut Vec<String>) -> Option<crate::ui::Theme> {
             if i < args.len() {
                 let val = args.remove(i);
                 return match val.to_lowercase().as_str() {
-                    "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Plain),
-                    "light" => Some(crate::ui::Theme::Light),
-                    "neo" | "dark" => Some(crate::ui::Theme::Neo),
+                    "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Ascii),
+                    "default" | "neo" | "dark" | "classic" => Some(crate::ui::Theme::Default),
                     _ => None,
                 };
             }
@@ -287,9 +314,8 @@ pub fn extract_theme_arg(args: &mut Vec<String>) -> Option<crate::ui::Theme> {
             let item = args.remove(i);
             let stripped = &item["--theme=".len()..];
             return match stripped.to_lowercase().as_str() {
-                "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Plain),
-                "light" => Some(crate::ui::Theme::Light),
-                "neo" | "dark" => Some(crate::ui::Theme::Neo),
+                "plain" | "mono" | "ascii" => Some(crate::ui::Theme::Ascii),
+                "default" | "neo" | "dark" | "classic" => Some(crate::ui::Theme::Default),
                 _ => None,
             };
         } else {
@@ -322,6 +348,10 @@ pub fn print_help() {
     println!("  rutendar --export-notes [период]  Экспорт заметок в Markdown [day|week|month|all]");
     println!("  rutendar --export [файл]          Экспорт базы данных в файл (-e)");
     println!("  rutendar --import <файл> [-f]     Импорт базы данных из файла (-i)");
+    println!(
+        "  rutendar --export-ics [файл]      Экспорт в iCalendar (.ics) для Google Calendar (-E)"
+    );
+    println!("  rutendar --import-ics <файл>      Импорт из iCalendar (.ics) (-I)");
     println!("  rutendar --help                   Вывод этой справки (-h)\n");
     println!("ОПЦИИ ДЛЯ --add:");
     println!("  --title, -t <НАЗВАНИЕ>      Название события");
@@ -420,6 +450,37 @@ mod tests {
             }))
         );
         assert!(parse_cli_command(&["--import".into()]).is_err());
+
+        // ICS commands and auto-detection
+        assert_eq!(
+            parse_cli_command(&["--export-ics".into()]),
+            Ok(Some(CliCommand::ExportIcs(None)))
+        );
+        assert_eq!(
+            parse_cli_command(&["-E".into(), "calendar.ics".into()]),
+            Ok(Some(CliCommand::ExportIcs(Some(PathBuf::from(
+                "calendar.ics"
+            )))))
+        );
+        assert_eq!(
+            parse_cli_command(&["--export".into(), "calendar.ics".into()]),
+            Ok(Some(CliCommand::ExportIcs(Some(PathBuf::from(
+                "calendar.ics"
+            )))))
+        );
+        assert_eq!(
+            parse_cli_command(&["--import-ics".into(), "calendar.ics".into()]),
+            Ok(Some(CliCommand::ImportIcs {
+                path: PathBuf::from("calendar.ics")
+            }))
+        );
+        assert_eq!(
+            parse_cli_command(&["--import".into(), "calendar.ics".into()]),
+            Ok(Some(CliCommand::ImportIcs {
+                path: PathBuf::from("calendar.ics")
+            }))
+        );
+        assert!(parse_cli_command(&["--import-ics".into()]).is_err());
 
         assert_eq!(
             parse_cli_command(&["--help".into()]),
@@ -632,19 +693,68 @@ mod tests {
     #[test]
     fn test_extract_theme_arg() {
         let mut args1 = vec!["--theme".into(), "plain".into(), "--full".into()];
-        assert_eq!(extract_theme_arg(&mut args1), Some(crate::ui::Theme::Plain));
+        assert_eq!(extract_theme_arg(&mut args1), Some(crate::ui::Theme::Ascii));
         assert_eq!(args1, vec!["--full"]);
 
-        let mut args2 = vec!["-T".into(), "light".into()];
-        assert_eq!(extract_theme_arg(&mut args2), Some(crate::ui::Theme::Light));
+        let mut args2 = vec!["-T".into(), "ascii".into()];
+        assert_eq!(extract_theme_arg(&mut args2), Some(crate::ui::Theme::Ascii));
         assert!(args2.is_empty());
 
-        let mut args3 = vec!["--theme=neo".into()];
-        assert_eq!(extract_theme_arg(&mut args3), Some(crate::ui::Theme::Neo));
+        let mut args3 = vec!["--theme=default".into()];
+        assert_eq!(
+            extract_theme_arg(&mut args3),
+            Some(crate::ui::Theme::Default)
+        );
         assert!(args3.is_empty());
 
         let mut args4 = vec!["--unknown".into()];
         assert_eq!(extract_theme_arg(&mut args4), None);
         assert_eq!(args4, vec!["--unknown"]);
+    }
+
+    #[test]
+    fn test_export_ics_and_import_ics_cli_flow() {
+        let mut db1 = crate::storage::Database::in_memory().unwrap();
+        db1.create_event(
+            &crate::model::NewEvent {
+                title: "Встреча в календаре".into(),
+                description: Some("Описание встречи".into()),
+                start_date: chrono::NaiveDate::from_ymd_opt(2026, 9, 3).unwrap(),
+                start_time: chrono::NaiveTime::from_hms_opt(14, 0, 0),
+                end_time: chrono::NaiveTime::from_hms_opt(15, 0, 0),
+                importance: crate::model::Importance::High,
+                directory: None,
+            },
+            None,
+            &["работа".into()],
+            &[],
+        )
+        .unwrap();
+
+        db1.create_task(&crate::model::NewTask {
+            title: "Задача из CLI".into(),
+            description: Some("Подробности".into()),
+            date: Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 4).unwrap()),
+            importance: crate::model::Importance::Normal,
+        })
+        .unwrap();
+
+        let temp_ics = std::env::temp_dir().join("test_rutendar_flow.ics");
+        run_export_ics(&db1, Some(&temp_ics)).expect("export ics failed");
+        assert!(temp_ics.exists());
+
+        let mut db2 = crate::storage::Database::in_memory().unwrap();
+        run_import_ics(&mut db2, &temp_ics).expect("import ics failed");
+
+        let events = db2.all_events_for_export().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event.title, "Встреча в календаре");
+        assert_eq!(events[0].tags, vec!["работа"]);
+
+        let tasks = db2.all_tasks(crate::model::TaskFilter::All).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Задача из CLI");
+
+        let _ = std::fs::remove_file(&temp_ics);
     }
 }

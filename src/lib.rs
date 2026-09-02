@@ -4,6 +4,7 @@ pub mod cli;
 pub mod completion;
 pub mod config;
 pub mod external;
+pub mod ics;
 pub mod input;
 pub mod model;
 pub mod recurrence;

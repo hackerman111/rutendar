@@ -7,11 +7,11 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use super::widgets::{FOCUSED, SELECTED, TODAY, TODAY_BADGE, calendar_border_style};
 use crate::{
     app::App,
     calendar::{month_start, week_start},
     model::Importance,
+    ui::Theme,
 };
 
 pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
@@ -73,25 +73,33 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
             let is_today = date == app.state.today;
             let is_curr_month = date.month() == app.state.selected_date.month();
 
+            let theme = app.config.ui.theme;
             let mut header_spans = Vec::new();
             if selected {
-                header_spans.push(Span::styled(format!(" {:02} ", date.day()), SELECTED));
+                header_spans.push(Span::styled(
+                    format!(" {:02} ", date.day()),
+                    super::widgets::theme_selected(theme),
+                ));
             } else if is_today {
-                header_spans.push(Span::styled(format!(" {:02} ", date.day()), TODAY_BADGE));
+                header_spans.push(Span::styled(
+                    format!(" {:02} ", date.day()),
+                    super::widgets::theme_today_badge(theme),
+                ));
             } else if is_curr_month {
                 header_spans.push(Span::styled(
                     format!(" {:02} ", date.day()),
-                    Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+                    theme.title_style(false, false),
                 ));
             } else {
                 header_spans.push(Span::styled(
                     format!(" {:02} ", date.day()),
-                    Style::new().fg(Color::DarkGray),
+                    super::widgets::theme_unfocused(theme),
                 ));
             }
 
             if is_today && !selected {
-                header_spans.push(Span::styled(" •", TODAY));
+                let dot = if theme == Theme::Ascii { " *" } else { " •" };
+                header_spans.push(Span::styled(dot, super::widgets::theme_today(theme)));
             }
 
             let mut lines = vec![Line::from(header_spans)];
@@ -102,15 +110,21 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
                     event.importance,
                     event.is_recurring,
                     is_curr_month,
+                    theme,
                 ));
             }
             if note_count > 0 {
+                let note_icon = if theme == Theme::Ascii {
+                    " [N]"
+                } else {
+                    " ◆"
+                };
                 metric_spans.push(Span::styled(
-                    format!(" ◆{note_count}"),
+                    format!("{note_icon}{note_count}"),
                     if is_curr_month {
-                        Style::new().fg(Color::Yellow)
+                        theme.key_badge_style()
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        super::widgets::theme_unfocused(theme)
                     },
                 ));
             }
@@ -119,12 +133,18 @@ pub fn render_month(frame: &mut Frame, area: Rect, app: &App) {
                 lines.push(Line::from(metric_spans));
             }
 
-            let border_style = calendar_border_style(selected, is_today, has_high_importance);
+            let border_style = super::widgets::theme_calendar_border_style(
+                theme,
+                selected,
+                is_today,
+                has_high_importance,
+            );
 
             frame.render_widget(
                 Paragraph::new(lines).block(
                     Block::default()
                         .borders(Borders::ALL)
+                        .border_type(super::widgets::theme_border_type(theme))
                         .border_style(border_style),
                 ),
                 columns[day],
@@ -137,22 +157,64 @@ fn month_event_marker(
     importance: Importance,
     recurring: bool,
     is_current_month: bool,
+    theme: Theme,
 ) -> Span<'static> {
-    let symbol = if recurring { "↻" } else { "●" };
-    let marker = if importance == Importance::High {
-        format!(" !{symbol}")
-    } else {
-        format!(" {symbol}")
+    let marker = match (recurring, importance) {
+        (true, Importance::High) => {
+            if theme == Theme::Ascii {
+                "!(R)"
+            } else {
+                "▲↻"
+            }
+        }
+        (true, Importance::Normal) => {
+            if theme == Theme::Ascii {
+                "*(R)"
+            } else {
+                "●↻"
+            }
+        }
+        (true, Importance::Low) => {
+            if theme == Theme::Ascii {
+                "-(R)"
+            } else {
+                "·↻"
+            }
+        }
+        (true, Importance::None) => {
+            if theme == Theme::Ascii {
+                "(R)"
+            } else {
+                "↻"
+            }
+        }
+        (false, Importance::High) => {
+            if theme == Theme::Ascii {
+                "! "
+            } else {
+                "▲ "
+            }
+        }
+        (false, Importance::Normal) => {
+            if theme == Theme::Ascii {
+                "* "
+            } else {
+                "● "
+            }
+        }
+        (false, Importance::Low) => {
+            if theme == Theme::Ascii {
+                "- "
+            } else {
+                "· "
+            }
+        }
+        (false, Importance::None) => "  ",
     };
     let style = if !is_current_month {
-        Style::new().fg(Color::DarkGray)
+        super::widgets::theme_unfocused(theme)
     } else {
-        match importance {
-            Importance::High => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
-            Importance::Normal => Style::new().fg(Color::Rgb(255, 165, 0)),
-            Importance::Low => Style::new().fg(Color::Gray),
-            Importance::None => Style::new().fg(Color::DarkGray),
-        }
+        super::widgets::theme_importance_style(theme, importance)
     };
     Span::styled(marker, style)
 }
@@ -247,39 +309,61 @@ pub fn render_month_day_preview(
 
     frame.render_widget(Clear, popup_rect);
 
+    let theme = app.config.ui.theme;
     let mut lines = Vec::new();
     if total_items == 0 {
         lines.push(Line::from(vec![Span::styled(
             "   (нет событий)",
-            Style::new().fg(Color::DarkGray),
+            super::widgets::theme_unfocused(theme),
         )]));
     } else {
         use chrono::Timelike;
         for (i, occ) in occurrences.iter().enumerate() {
             let is_sel = i == selected_index;
-            let cursor = if is_sel { " › " } else { "   " };
+            let cursor = if is_sel {
+                match theme {
+                    Theme::Default => " ▸ ",
+                    Theme::Ascii => " > ",
+                }
+            } else {
+                "   "
+            };
             let time_str = if let Some(t) = occ.start_time {
                 format!("{:02}:{:02} ", t.hour(), t.minute())
             } else {
                 "--:-- ".to_string()
             };
             let imp_symbol = app.config.importance_symbol(occ.importance);
-            let rec_symbol = if occ.is_recurring { "↻ " } else { "  " };
+            let rec_symbol = if occ.is_recurring {
+                if theme == Theme::Ascii {
+                    "(R) "
+                } else {
+                    "↻ "
+                }
+            } else {
+                "  "
+            };
 
-            let cursor_span =
-                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
-            let time_span = Span::styled(time_str, Style::new().fg(Color::Cyan));
+            let cursor_span = Span::styled(
+                cursor,
+                if is_sel {
+                    super::widgets::theme_selected(theme)
+                } else {
+                    Style::default()
+                },
+            );
+            let time_span = Span::styled(time_str, theme.time_style());
             let imp_span = Span::styled(
                 format!("{imp_symbol} "),
-                month_importance_style(occ.importance),
+                super::widgets::theme_importance_style(theme, occ.importance),
             );
-            let rec_span = Span::styled(rec_symbol, Style::new().fg(Color::DarkGray));
+            let rec_span = Span::styled(rec_symbol, super::widgets::theme_unfocused(theme));
             let title_span = Span::styled(
                 &occ.title,
                 if is_sel {
-                    SELECTED
+                    super::widgets::theme_selected(theme)
                 } else {
-                    Style::new().fg(Color::White)
+                    theme.title_style(false, false)
                 },
             );
 
@@ -295,28 +379,32 @@ pub fn render_month_day_preview(
         for (k, task) in tasks.iter().enumerate() {
             let idx = occurrences.len() + k;
             let is_sel = idx == selected_index;
-            let cursor = if is_sel { " › " } else { "   " };
-            let cursor_span =
-                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
-            let checkbox = if task.is_done {
-                Span::styled(
-                    "[x] ",
-                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
-                )
+            let cursor = if is_sel {
+                match theme {
+                    Theme::Default => " ▸ ",
+                    Theme::Ascii => " > ",
+                }
             } else {
-                Span::styled("[ ] ", Style::new().fg(Color::Yellow))
+                "   "
             };
+            let cursor_span = Span::styled(
+                cursor,
+                if is_sel {
+                    super::widgets::theme_selected(theme)
+                } else {
+                    Style::default()
+                },
+            );
+            let checkbox = theme.task_checkbox_span(task.is_done);
             let imp_symbol = app.config.importance_symbol(task.importance);
             let imp_span = Span::styled(
                 format!("{imp_symbol} "),
-                month_importance_style(task.importance),
+                super::widgets::theme_importance_style(theme, task.importance),
             );
             let title_style = if is_sel {
-                SELECTED
-            } else if task.is_done {
-                Style::new().fg(Color::DarkGray)
+                super::widgets::theme_selected(theme)
             } else {
-                Style::new().fg(Color::White)
+                theme.title_style(false, task.is_done)
             };
             let title_span = Span::styled(&task.title, title_style);
 
@@ -331,17 +419,35 @@ pub fn render_month_day_preview(
         for (j, note) in notes.iter().enumerate() {
             let idx = occurrences.len() + tasks.len() + j;
             let is_sel = idx == selected_index;
-            let cursor = if is_sel { " › " } else { "   " };
-            let cursor_span =
-                Span::styled(cursor, if is_sel { SELECTED } else { Style::default() });
-            let icon_span = Span::styled("◆ ", Style::new().fg(Color::Yellow));
+            let cursor = if is_sel {
+                match theme {
+                    Theme::Default => " ▸ ",
+                    Theme::Ascii => " > ",
+                }
+            } else {
+                "   "
+            };
+            let cursor_span = Span::styled(
+                cursor,
+                if is_sel {
+                    super::widgets::theme_selected(theme)
+                } else {
+                    Style::default()
+                },
+            );
+            let icon_str = if theme == Theme::Ascii {
+                "[N] "
+            } else {
+                "◆ "
+            };
+            let icon_span = Span::styled(icon_str, theme.key_badge_style());
             let title_text = note.title.as_deref().unwrap_or(&note.body);
             let title_span = Span::styled(
                 title_text,
                 if is_sel {
-                    SELECTED
+                    super::widgets::theme_selected(theme)
                 } else {
-                    Style::new().fg(Color::Yellow)
+                    theme.key_badge_style()
                 },
             );
 
@@ -352,19 +458,11 @@ pub fn render_month_day_preview(
     let title = format!(" {} [{}] ", date.format("%d.%m.%Y"), total_items);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Span::styled(title, SELECTED))
-        .border_style(FOCUSED);
+        .border_type(super::widgets::theme_border_type(theme))
+        .title(Span::styled(title, super::widgets::theme_selected(theme)))
+        .border_style(super::widgets::theme_focused(theme));
 
     frame.render_widget(Paragraph::new(lines).block(block), popup_rect);
-}
-
-pub(crate) fn month_importance_style(importance: Importance) -> Style {
-    match importance {
-        Importance::High => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
-        Importance::Normal => Style::new().fg(Color::Rgb(255, 165, 0)),
-        Importance::Low => Style::new().fg(Color::Gray),
-        Importance::None => Style::new().fg(Color::DarkGray),
-    }
 }
 
 #[cfg(test)]
@@ -373,20 +471,24 @@ mod tests {
 
     #[test]
     fn month_markers_distinguish_priority_and_recurrence() {
-        let low = month_event_marker(Importance::Low, false, true);
-        assert_eq!(low.content, " ●");
-        assert_eq!(low.style, Style::new().fg(Color::Gray));
+        let low = month_event_marker(Importance::Low, false, true, Theme::Default);
+        assert_eq!(low.content, "· ");
 
-        let normal = month_event_marker(Importance::Normal, true, true);
-        assert_eq!(normal.content, " ↻");
-        assert_eq!(normal.style, Style::new().fg(Color::Rgb(255, 165, 0)));
+        let normal = month_event_marker(Importance::Normal, true, true, Theme::Default);
+        assert_eq!(normal.content, "●↻");
 
-        let high = month_event_marker(Importance::High, false, true);
-        assert_eq!(high.content, " !●");
-        assert_eq!(
-            high.style,
-            Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
-        );
+        let high = month_event_marker(Importance::High, false, true, Theme::Default);
+        assert_eq!(high.content, "▲ ");
+
+        // Plain theme ASCII markers
+        let low_plain = month_event_marker(Importance::Low, false, true, Theme::Ascii);
+        assert_eq!(low_plain.content, "- ");
+
+        let normal_plain = month_event_marker(Importance::Normal, true, true, Theme::Ascii);
+        assert_eq!(normal_plain.content, "*(R)");
+
+        let high_plain = month_event_marker(Importance::High, false, true, Theme::Ascii);
+        assert_eq!(high_plain.content, "! ");
     }
 
     #[test]

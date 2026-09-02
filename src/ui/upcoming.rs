@@ -1,18 +1,18 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem},
 };
 
 use super::widgets::{
-    FOCUSED, KEY_BADGE, KEY_LABEL, SELECTED, TIME_STYLE, centered, importance_style, relative_date,
-    tags_line,
+    KEY_LABEL, centered, relative_date, tags_line, theme_border_type, theme_focused,
+    theme_importance_style, theme_selected, theme_today_badge, theme_unfocused,
 };
-use crate::app::App;
+use crate::{app::App, ui::Theme};
 
 pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
+    let theme = app.config.ui.theme;
     let popup = centered(area, 76, 80);
     frame.render_widget(Clear, popup);
     let capacity = (popup.height.saturating_sub(2) / 2).max(1) as usize;
@@ -32,11 +32,16 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
         .take(capacity)
         .map(|(index, event)| {
             let is_selected = index == app.state.upcoming.selected;
-            let sel_style = SELECTED;
+            let sel_style = theme_selected(theme);
             let mut line_spans = Vec::new();
 
             if is_selected {
-                line_spans.push(Span::styled("▸ ", sel_style));
+                let cursor = match theme {
+                    Theme::Default => "▸ ",
+                    Theme::Ascii => "> ",
+                };
+
+                line_spans.push(Span::styled(cursor, sel_style));
             } else {
                 line_spans.push(Span::raw("  "));
             }
@@ -46,12 +51,9 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 let badge_style = if is_selected {
                     sel_style
                 } else if event.date == app.state.today {
-                    Style::new()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
+                    theme_today_badge(theme)
                 } else {
-                    Style::new().fg(Color::Yellow)
+                    theme.key_badge_style()
                 };
                 let badge = if is_selected || event.date == app.state.today {
                     format!(" {} ", rel_date.trim())
@@ -67,12 +69,17 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
             }
 
             if event.is_recurring {
+                let rec_sym = if theme == Theme::Ascii {
+                    "(R) "
+                } else {
+                    "↻ "
+                };
                 let rec_style = if is_selected {
                     sel_style
                 } else {
-                    Style::new().fg(Color::DarkGray)
+                    theme_unfocused(theme)
                 };
-                line_spans.push(Span::styled("↻ ", rec_style));
+                line_spans.push(Span::styled(rec_sym, rec_style));
             }
 
             let sym = app.config.importance_symbol(event.importance);
@@ -80,9 +87,22 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 let pri_style = if is_selected {
                     sel_style
                 } else {
-                    importance_style(event.importance)
+                    theme_importance_style(theme, event.importance)
                 };
-                line_spans.push(Span::styled(format!("{sym} "), pri_style));
+                let disp_sym = if theme == Theme::Ascii {
+                    match event.importance {
+                        crate::model::Importance::High => "[!] ",
+                        crate::model::Importance::Normal => "[.] ",
+                        crate::model::Importance::Low => "[-] ",
+                        crate::model::Importance::None => "    ",
+                    }
+                } else {
+                    sym
+                };
+                line_spans.push(Span::styled(disp_sym.to_string(), pri_style));
+                if theme != Theme::Ascii {
+                    line_spans.push(Span::raw(" "));
+                }
             }
 
             let time_str = event
@@ -90,14 +110,18 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 .map(|time| time.format("%H:%M ").to_string())
                 .unwrap_or_default();
             if !time_str.is_empty() {
-                let t_style = if is_selected { sel_style } else { TIME_STYLE };
+                let t_style = if is_selected {
+                    sel_style
+                } else {
+                    theme.time_style()
+                };
                 line_spans.push(Span::styled(time_str, t_style));
             }
 
             let title_style = if is_selected {
                 sel_style
             } else {
-                Style::new().fg(Color::White)
+                theme.title_style(false, false)
             };
             line_spans.push(Span::styled(format!("{} ", event.title), title_style));
 
@@ -107,9 +131,9 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 detail_spans.push(Span::styled(
                     tags,
                     if is_selected {
-                        Style::new().fg(Color::Cyan)
+                        theme.time_style()
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        theme_unfocused(theme)
                     },
                 ));
             }
@@ -130,12 +154,13 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
                 if !detail_spans.is_empty() {
                     detail_spans.push(Span::raw("  "));
                 }
+                let link_icon = if theme == Theme::Ascii { "[L]" } else { "🔗" };
                 detail_spans.push(Span::styled(
-                    format!("🔗 {label} › {url}"),
+                    format!("{link_icon} {label} › {url}"),
                     if is_selected {
-                        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        theme.time_style()
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        theme_unfocused(theme)
                     },
                 ));
             }
@@ -145,8 +170,8 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
         .collect::<Vec<_>>();
 
     let title = Line::from(vec![
-        Span::styled(" UPCOMING // БЛИЖАЙШИЕ ", SELECTED),
-        Span::styled("[s]", KEY_BADGE),
+        Span::styled(" UPCOMING // БЛИЖАЙШИЕ ", theme_selected(theme)),
+        Span::styled("[s]", theme.key_badge_style()),
         Span::styled(format!(" SORT: {:?} ", app.state.upcoming.sort), KEY_LABEL),
     ]);
 
@@ -154,8 +179,9 @@ pub fn render_upcoming(frame: &mut Frame, area: Rect, app: &App) {
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(theme_border_type(theme))
                 .title(title)
-                .border_style(FOCUSED),
+                .border_style(theme_focused(theme)),
         ),
         popup,
     );

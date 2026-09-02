@@ -142,16 +142,56 @@ impl AddFormApp {
 
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent, db: &Database) -> bool {
         match (key.code, key.modifiers) {
-            (KeyCode::Tab, KeyModifiers::NONE) | (KeyCode::Down, _) => {
+            (KeyCode::Down, _) => {
                 self.active_field = self.active_field.next();
                 self.suggestions.clear();
                 self.status_message = None;
             }
-            (KeyCode::BackTab, _) | (KeyCode::Up, _) => {
+            (KeyCode::Up, _) => {
                 self.active_field = self.active_field.prev();
                 self.suggestions.clear();
                 self.status_message = None;
             }
+            (KeyCode::Tab, KeyModifiers::NONE) => match self.active_field {
+                AddFormField::Importance => {
+                    self.importance = match self.importance {
+                        Importance::None => Importance::Low,
+                        Importance::Low => Importance::Normal,
+                        Importance::Normal => Importance::High,
+                        Importance::High => Importance::None,
+                    };
+                }
+                AddFormField::Tags if !self.suggestions.is_empty() => {
+                    let suggestion = self.suggestions[self.suggestion_idx].clone();
+                    let start = self
+                        .tags
+                        .char_indices()
+                        .rev()
+                        .find(|(_, c)| c.is_whitespace() || *c == ',')
+                        .map_or(0, |(idx, c)| idx + c.len_utf8());
+                    self.tags.truncate(start);
+                    if !suggestion.starts_with('#') {
+                        self.tags.push('#');
+                    }
+                    self.tags.push_str(&suggestion);
+                    self.tags.push(' ');
+                    self.suggestion_idx = (self.suggestion_idx + 1) % self.suggestions.len();
+                }
+                AddFormField::Directory if !self.suggestions.is_empty() => {
+                    self.directory = self.suggestions[self.suggestion_idx].clone();
+                    self.suggestion_idx = (self.suggestion_idx + 1) % self.suggestions.len();
+                }
+                _ => {}
+            },
+            (KeyCode::BackTab, _) if self.active_field == AddFormField::Importance => {
+                self.importance = match self.importance {
+                    Importance::None => Importance::High,
+                    Importance::Low => Importance::None,
+                    Importance::Normal => Importance::Low,
+                    Importance::High => Importance::Normal,
+                };
+            }
+
             (KeyCode::Left, _) if self.active_field == AddFormField::Importance => {
                 self.importance = match self.importance {
                     Importance::None => Importance::High,
@@ -355,7 +395,7 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
         format!("{}Новое событие ", app.theme.add_icon())
     };
 
-    let sep = if app.theme == Theme::Plain {
+    let sep = if app.theme == Theme::Ascii {
         "- "
     } else {
         "─ "
@@ -372,8 +412,10 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
     ]);
 
     let footer_line = Line::from(vec![
-        Span::styled(" [Tab/↓/↑] ", app.theme.key_badge_style()),
+        Span::styled(" [↓/↑] ", app.theme.key_badge_style()),
         Span::styled("Поля · ", app.theme.inactive_tab_style()),
+        Span::styled("[Tab] ", app.theme.key_badge_style()),
+        Span::styled("Варианты/Важность · ", app.theme.inactive_tab_style()),
         Span::styled("[←/→] ", app.theme.key_badge_style()),
         Span::styled("Важность · ", app.theme.inactive_tab_style()),
         Span::styled("[Enter] ", app.theme.key_badge_style()),
@@ -396,7 +438,7 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
         return;
     }
 
-    let divider = if app.theme == Theme::Plain {
+    let divider = if app.theme == Theme::Ascii {
         " -----------------------------------------------------------------------------------"
     } else {
         " ───────────────────────────────────────────────────────────────────────────────────"
@@ -473,7 +515,7 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
         lines.push(Line::from(spans));
     } else {
         lines.push(Line::from(Span::styled(
-            "  ℹ  Нажмите Tab / ↓ для перехода по полям, Enter — сохранить событие",
+            "  ℹ  Стрелки ↓/↑ — переход по полям, Tab — варианты/важность, Enter — сохранить",
             app.theme.inactive_tab_style(),
         )));
     }
@@ -502,7 +544,7 @@ fn render_field_line<'a>(
     };
 
     let cursor = if is_active {
-        if theme == Theme::Plain {
+        if theme == Theme::Ascii {
             Span::styled("_", theme.key_badge_style())
         } else {
             Span::styled("█", theme.key_badge_style())
@@ -737,14 +779,33 @@ impl TaskFormApp {
 
     pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
         match (key.code, key.modifiers) {
-            (KeyCode::Tab, KeyModifiers::NONE) | (KeyCode::Down, _) => {
+            (KeyCode::Down, _) => {
                 self.active_field = self.active_field.next();
                 self.status_message = None;
             }
-            (KeyCode::BackTab, _) | (KeyCode::Up, _) => {
+            (KeyCode::Up, _) => {
                 self.active_field = self.active_field.prev();
                 self.status_message = None;
             }
+            (KeyCode::Tab, KeyModifiers::NONE)
+                if self.active_field == TaskFormField::Importance =>
+            {
+                self.importance = match self.importance {
+                    Importance::None => Importance::Low,
+                    Importance::Low => Importance::Normal,
+                    Importance::Normal => Importance::High,
+                    Importance::High => Importance::None,
+                };
+            }
+            (KeyCode::BackTab, _) if self.active_field == TaskFormField::Importance => {
+                self.importance = match self.importance {
+                    Importance::None => Importance::High,
+                    Importance::Low => Importance::None,
+                    Importance::Normal => Importance::Low,
+                    Importance::High => Importance::Normal,
+                };
+            }
+
             (KeyCode::Left, _) if self.active_field == TaskFormField::Importance => {
                 self.importance = match self.importance {
                     Importance::None => Importance::High,
@@ -753,6 +814,7 @@ impl TaskFormApp {
                     Importance::High => Importance::Normal,
                 };
             }
+
             (KeyCode::Right, _) if self.active_field == TaskFormField::Importance => {
                 self.importance = match self.importance {
                     Importance::None => Importance::Low,
@@ -830,7 +892,7 @@ impl TaskFormApp {
 
 pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
     let mode_title = format!("{}Новая задача (TODO) ", app.theme.task_icon());
-    let sep = if app.theme == Theme::Plain {
+    let sep = if app.theme == Theme::Ascii {
         "- "
     } else {
         "─ "
@@ -847,9 +909,9 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
     ]);
 
     let footer_line = Line::from(vec![
-        Span::styled(" [Tab/↓/↑] ", app.theme.key_badge_style()),
+        Span::styled(" [↓/↑] ", app.theme.key_badge_style()),
         Span::styled("Поля · ", app.theme.inactive_tab_style()),
-        Span::styled("[←/→] ", app.theme.key_badge_style()),
+        Span::styled("[Tab/←/→] ", app.theme.key_badge_style()),
         Span::styled("Важность · ", app.theme.inactive_tab_style()),
         Span::styled("[Enter] ", app.theme.key_badge_style()),
         Span::styled("Сохранить · ", app.theme.inactive_tab_style()),
@@ -871,7 +933,7 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
         return;
     }
 
-    let divider = if app.theme == Theme::Plain {
+    let divider = if app.theme == Theme::Ascii {
         " -----------------------------------------------------------------------------------"
     } else {
         " ───────────────────────────────────────────────────────────────────────────────────"
@@ -921,7 +983,7 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
         ]));
     } else {
         lines.push(Line::from(Span::styled(
-            "  ℹ  Нажмите Tab / ↓ для перехода по полям, Enter — сохранить задачу",
+            "  ℹ  Стрелки ↓/↑ — переход по полям, Tab — важность, Enter — сохранить задачу",
             app.theme.inactive_tab_style(),
         )));
     }
@@ -1018,6 +1080,57 @@ mod tests {
 
         let loaded = db.get_event(created.event_id).unwrap().unwrap();
         assert_eq!(loaded.title, "Обновленное событие");
+
+        // Test handle_key: Down/Up navigates fields
+        let mut test_app = AddFormApp::new(today);
+        assert_eq!(test_app.active_field, AddFormField::Title);
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down),
+            &db,
+        );
+        assert_eq!(test_app.active_field, AddFormField::Date);
+
+        // Move to Importance and test Tab cycling
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down),
+            &db,
+        ); // Time
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down),
+            &db,
+        ); // Importance
+        assert_eq!(test_app.active_field, AddFormField::Importance);
+        assert_eq!(test_app.importance, Importance::Normal);
+
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab),
+            &db,
+        );
+        assert_eq!(test_app.importance, Importance::High);
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab),
+            &db,
+        );
+        assert_eq!(test_app.importance, Importance::None);
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab),
+            &db,
+        );
+        assert_eq!(test_app.importance, Importance::Low);
+
+        // Test Tab in Tags completes from suggestions
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Down),
+            &db,
+        ); // Tags
+        assert_eq!(test_app.active_field, AddFormField::Tags);
+        test_app.suggestions = vec!["универ".into(), "работа".into()];
+        test_app.tags = "#ун".into();
+        test_app.handle_key(
+            crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Tab),
+            &db,
+        );
+        assert_eq!(test_app.tags, "#универ ");
     }
 
     #[test]
@@ -1046,7 +1159,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
 
         let today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
-        let app = AddFormApp::new(today).with_theme(Theme::Plain);
+        let app = AddFormApp::new(today).with_theme(Theme::Ascii);
         terminal
             .draw(|frame| {
                 render_add_form(frame, frame.area(), &app);
@@ -1057,7 +1170,7 @@ mod tests {
         let rendered_text = format!("{:?}", buffer);
         assert!(rendered_text.contains("Новое событие"));
 
-        let task_app = TaskFormApp::new(today).with_theme(Theme::Plain);
+        let task_app = TaskFormApp::new(today).with_theme(Theme::Ascii);
         terminal
             .draw(|frame| {
                 render_task_form(frame, frame.area(), &task_app);

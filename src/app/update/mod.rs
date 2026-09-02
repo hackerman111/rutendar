@@ -320,6 +320,10 @@ impl App {
                     self.refresh_agenda()?;
                 }
             }
+            Action::CycleTheme => {
+                self.config.ui.theme = self.config.ui.theme.cycle();
+                self.state.status_message = Some(format!("Тема: {}", self.config.ui.theme.name()));
+            }
         }
         Ok(())
     }
@@ -778,5 +782,32 @@ mod tests {
         app.apply(Action::Delete).unwrap();
         assert!(app.database.get_task(task_id).unwrap().is_none());
         assert_eq!(app.state.tasks.len(), 0);
+    }
+
+    #[test]
+    fn cycle_theme_updates_config_and_status() {
+        let db = Database::in_memory().unwrap();
+        let mut app = App::new(db, Config::default()).unwrap();
+        assert_eq!(app.config.ui.theme, crate::ui::Theme::Default);
+
+        app.apply(Action::CycleTheme).unwrap();
+        assert_eq!(app.config.ui.theme, crate::ui::Theme::Ascii);
+        assert!(
+            app.state
+                .status_message
+                .as_deref()
+                .unwrap_or("")
+                .contains("ASCII")
+        );
+
+        app.apply(Action::CycleTheme).unwrap();
+        assert_eq!(app.config.ui.theme, crate::ui::Theme::Default);
+        assert!(
+            app.state
+                .status_message
+                .as_deref()
+                .unwrap_or("")
+                .contains("Default")
+        );
     }
 }
