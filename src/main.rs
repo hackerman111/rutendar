@@ -17,82 +17,97 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let bin_name = std::env::args()
-        .next()
-        .and_then(|s| {
-            std::path::Path::new(&s)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-        })
-        .unwrap_or_default();
+    let cmd = rutendar::cli::parse_cli_command(&args)?;
+    let (config, paths) = Config::load()?;
 
-    let mut cmd = rutendar::cli::parse_cli_command(&args)?;
-    if cmd.is_none() && bin_name == "ruty" {
-        cmd = Some(rutendar::cli::CliCommand::List(None));
-    }
-
-    if let Some(cmd) = cmd {
-        let (_config, paths) = Config::load()?;
-        match cmd {
-            rutendar::cli::CliCommand::List(period) => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_list(&database, period)?;
-            }
-            rutendar::cli::CliCommand::Add(add_args) => {
-                let mut database = Database::open(&paths.database)?;
-                rutendar::cli::run_add(&mut database, &add_args)?;
-            }
-            rutendar::cli::CliCommand::Export(target) => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_export(&database, target.as_deref())?;
-            }
-            rutendar::cli::CliCommand::Import { path, force } => {
-                rutendar::cli::run_import(&paths.database, &path, force)?;
-            }
-            rutendar::cli::CliCommand::TaskMenu => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_task_menu(&database)?;
-            }
-            rutendar::cli::CliCommand::TaskAdd(task_args) => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_task_add(&database, &task_args)?;
-            }
-            rutendar::cli::CliCommand::TaskToggle(id) => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_task_toggle(&database, id)?;
-            }
-            rutendar::cli::CliCommand::TaskList(filter) => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_task_list(&database, filter.as_deref())?;
-            }
-            rutendar::cli::CliCommand::NotesMenu => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_notes_menu(&database)?;
-            }
-            rutendar::cli::CliCommand::NotesExport {
-                period,
-                date,
-                file,
-                stdout,
-            } => {
-                let database = Database::open(&paths.database)?;
-                rutendar::cli::run_notes_export(&database, period, date, file.as_deref(), stdout)?;
-            }
-            rutendar::cli::CliCommand::Help => {
-                rutendar::cli::print_help();
+    match cmd {
+        Some(rutendar::cli::CliCommand::FullTui) => {
+            let database = Database::open(&paths.database)?;
+            run_fullscreen_tui(database, config, None)
+        }
+        Some(rutendar::cli::CliCommand::Add(add_args)) => {
+            let mut database = Database::open(&paths.database)?;
+            rutendar::cli::run_add(&mut database, &add_args)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::Export(target)) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_export(&database, target.as_deref())?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::Import { path, force }) => {
+            rutendar::cli::run_import(&paths.database, &path, force)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::TaskMenu) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_task_menu(&database)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::TaskAdd(task_args)) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_task_add(&database, &task_args)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::TaskToggle(id)) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_task_toggle(&database, id)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::TaskList(filter)) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_task_list(&database, filter.as_deref())?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::NotesMenu) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_notes_menu(&database)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::NotesExport {
+            period,
+            date,
+            file,
+            stdout,
+        }) => {
+            let database = Database::open(&paths.database)?;
+            rutendar::cli::run_notes_export(&database, period, date, file.as_deref(), stdout)?;
+            Ok(())
+        }
+        Some(rutendar::cli::CliCommand::Help) => {
+            rutendar::cli::print_help();
+            Ok(())
+        }
+        None
+        | Some(rutendar::cli::CliCommand::Inline(period))
+        | Some(rutendar::cli::CliCommand::List(period)) => {
+            let mut database = Database::open(&paths.database)?;
+            let outcome = rutendar::cli::run_inline(&mut database, &config, period)?;
+            match outcome {
+                rutendar::cli::InlineOutcome::Exit => Ok(()),
+                rutendar::cli::InlineOutcome::OpenFullTui { initial_date } => {
+                    run_fullscreen_tui(database, config, initial_date)
+                }
             }
         }
-        return Ok(());
     }
+}
 
-    let (config, paths) = Config::load()?;
-    let database = Database::open(&paths.database)?;
+fn run_fullscreen_tui(
+    database: Database,
+    config: Config,
+    initial_date: Option<chrono::NaiveDate>,
+) -> Result<(), Box<dyn Error>> {
     let key_config = config.keys.clone();
     let mut app = App::new(database, config)?;
+    if let Some(date) = initial_date {
+        let _ = app.select_date(date);
+    }
     let mut keymap = Keymap::new(&key_config);
     let mut tui = Tui::new()?;
     event_loop(&mut tui, &mut app, &mut keymap)
 }
+
 
 fn event_loop(tui: &mut Tui, app: &mut App, keymap: &mut Keymap) -> Result<(), Box<dyn Error>> {
     loop {

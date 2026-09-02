@@ -96,6 +96,12 @@ impl App {
         self.set_error(error);
     }
 
+    pub fn select_date(&mut self, date: NaiveDate) -> AppResult<()> {
+        self.state.selected_date = date;
+        self.refresh_calendar()
+    }
+
+
     pub(crate) fn view_range(&self) -> (NaiveDate, NaiveDate) {
         match self.state.active_view {
             View::Week => (

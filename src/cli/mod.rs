@@ -13,12 +13,15 @@ pub use add::{AddArgs, run_add};
 pub use export::run_export;
 pub use format::{format_day_summary, format_event_card};
 pub use import::run_import;
+pub use inline::{InlineOutcome, run_inline};
 pub use list::{Period, run_list};
 pub use note_export::{NotesPeriod, run_notes_export, run_notes_menu};
 pub use task::{TaskAddArgs, run_task_add, run_task_list, run_task_menu, run_task_toggle};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CliCommand {
+    FullTui,
+    Inline(Option<Period>),
     List(Option<Period>),
     Add(AddArgs),
     Export(Option<PathBuf>),
@@ -45,6 +48,11 @@ pub fn parse_cli_command(args: &[String]) -> Result<Option<CliCommand>, String> 
         return Ok(None);
     };
     match first.as_str() {
+        "--full" | "--tui" | "tui" => Ok(Some(CliCommand::FullTui)),
+        "--inline" | "inline" => {
+            let period = args.get(1).and_then(|s| Period::parse(s));
+            Ok(Some(CliCommand::Inline(period)))
+        }
         "--list" | "-l" | "list" => {
             let period = args.get(1).and_then(|s| Period::parse(s));
             Ok(Some(CliCommand::List(period)))
@@ -264,10 +272,14 @@ fn parse_notes_export_args(args: &[String]) -> Result<CliCommand, String> {
 pub fn print_help() {
     println!("\x1b[1;36mRutendar\x1b[0m — локальный терминальный календарь\n");
     println!("ИСПОЛЬЗОВАНИЕ:");
-    println!("  rutendar                          Запуск полноэкранного TUI календаря");
+    println!("  rutendar                          Интерактивный inline-календарь (Сегодня)");
+    println!("  rutendar --full, --tui            Запуск полноэкранного TUI календаря");
+    println!("  rutendar --inline [day|week]      Запуск inline-календаря");
+
     println!(
         "  rutendar --list [day|week|month]  Интерактивный просмотр и поиск ближайших событий (-l)"
     );
+
     println!("  rutendar --add [опции]            Добавление нового события из терминала (-a)");
     println!("  rutendar --task [опции]           Интерактивное меню заданий (To-Do) (-t)");
     println!("  rutendar --task-add [опции]       Добавление нового задания");
@@ -308,6 +320,28 @@ mod tests {
     #[test]
     fn parse_cli_commands() {
         assert_eq!(parse_cli_command(&[]), Ok(None));
+
+        assert_eq!(
+            parse_cli_command(&["--full".into()]),
+            Ok(Some(CliCommand::FullTui))
+        );
+        assert_eq!(
+            parse_cli_command(&["--tui".into()]),
+            Ok(Some(CliCommand::FullTui))
+        );
+        assert_eq!(
+            parse_cli_command(&["tui".into()]),
+            Ok(Some(CliCommand::FullTui))
+        );
+
+        assert_eq!(
+            parse_cli_command(&["--inline".into()]),
+            Ok(Some(CliCommand::Inline(None)))
+        );
+        assert_eq!(
+            parse_cli_command(&["--inline".into(), "week".into()]),
+            Ok(Some(CliCommand::Inline(Some(Period::Week))))
+        );
 
         assert_eq!(
             parse_cli_command(&["--list".into()]),
