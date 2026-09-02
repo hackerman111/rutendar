@@ -4,30 +4,52 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
 };
 
 use super::state::{InlineApp, InlineTab};
 use crate::model::Importance;
 
+const BG_SELECTED: Color = Color::Rgb(24, 34, 52);
+
 pub fn render_inline(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
+    let header_line = build_header(app);
+    let footer_line = build_footer(app);
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(header_line)
+        .title_bottom(footer_line);
+
+    let inner_area = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    if inner_area.height == 0 || inner_area.width == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Tabs / Header
-            Constraint::Length(1), // Subheader / Context
+            Constraint::Length(1), // Subheader / Context line
             Constraint::Min(1),    // List content
-            Constraint::Length(1), // Footer / Hotkeys
         ])
-        .split(area);
+        .split(inner_area);
 
-    render_header(frame, chunks[0], app);
-    render_subheader(frame, chunks[1], app);
-    render_content(frame, chunks[2], app);
-    render_footer(frame, chunks[3], app);
+    render_subheader(frame, chunks[0], app);
+    render_content(frame, chunks[1], app);
 }
 
-fn render_header(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
+fn build_header(app: &InlineApp) -> Line<'static> {
+    let brand = Span::styled(
+        " rutendar ",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
+
     let active_tab_style = Style::default()
         .fg(Color::Black)
         .bg(Color::Cyan)
@@ -50,34 +72,33 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
         Span::styled("  3 ПОИСК  ", inactive_tab_style)
     };
 
-    let weekday_str = match app.today.weekday() {
-        Weekday::Mon => "Понедельник",
-        Weekday::Tue => "Вторник",
-        Weekday::Wed => "Среда",
-        Weekday::Thu => "Четверг",
-        Weekday::Fri => "Пятница",
-        Weekday::Sat => "Суббота",
-        Weekday::Sun => "Воскресенье",
+    let weekday_short = match app.today.weekday() {
+        Weekday::Mon => "Пн",
+        Weekday::Tue => "Вт",
+        Weekday::Wed => "Ср",
+        Weekday::Thu => "Чт",
+        Weekday::Fri => "Пт",
+        Weekday::Sat => "Сб",
+        Weekday::Sun => "Вс",
     };
 
-    let today_banner = format!("📅 {}, {}", weekday_str, app.today.format("%d.%m.%Y"));
+    let today_banner = format!(" 📅 {}, {} ", weekday_short, app.today.format("%d.%m"));
 
-    let header_line = Line::from(vec![
-        Span::styled("Режим: ", Style::default().fg(Color::DarkGray)),
+    Line::from(vec![
+        brand,
+        Span::styled("─ ", Style::default().fg(Color::DarkGray)),
         tab_day,
         Span::raw(" "),
         tab_week,
         Span::raw(" "),
         tab_search,
-        Span::raw("   "),
+        Span::styled(" ─", Style::default().fg(Color::DarkGray)),
         Span::styled(today_banner, Style::default().fg(Color::White)),
         Span::styled(
-            "  (F: Полный TUI · q: Выход)",
+            "(F: Полный TUI · q: Выход) ",
             Style::default().fg(Color::DarkGray),
         ),
-    ]);
-
-    frame.render_widget(Paragraph::new(header_line), area);
+    ])
 }
 
 fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
@@ -103,7 +124,8 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             };
 
             Line::from(vec![
-                Span::styled("Дата: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(" "),
+                Span::styled("📅 ", Style::default().fg(Color::Cyan)),
                 Span::styled(
                     "← ",
                     Style::default()
@@ -122,16 +144,19 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!(
-                        "  ·  {} событий, {} задач",
-                        app.day_events.len(),
-                        app.day_tasks.len()
-                    ),
-                    Style::default().fg(Color::DarkGray),
+                    format!("{} событий", app.day_events.len()),
+                    Style::default().fg(Color::White),
                 ),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    "  [←/→: сменить день · t: сегодня]",
+                    format!("{} задач", app.day_tasks.len()),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "[←/→: день · t: сегодня]",
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
@@ -141,16 +166,23 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             let monday = app.current_date - Duration::days(weekday_offset);
             let sunday = monday + Duration::days(6);
             Line::from(vec![
-                Span::styled("Неделя: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(" "),
+                Span::styled("📅 ", Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    format!("{} — {}", monday.format("%d.%m"), sunday.format("%d.%m.%Y")),
+                    format!(
+                        "Неделя {} ({} — {})",
+                        monday.iso_week().week(),
+                        monday.format("%d.%m"),
+                        sunday.format("%d.%m.%Y")
+                    ),
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("  ·  {} событий", app.week_events.len()),
-                    Style::default().fg(Color::DarkGray),
+                    format!("{} событий за неделю", app.week_events.len()),
+                    Style::default().fg(Color::White),
                 ),
             ])
         }
@@ -170,13 +202,17 @@ fn render_subheader(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
             };
 
             Line::from(vec![
-                Span::styled("🔍 Поиск: ", Style::default().fg(Color::Yellow)),
+                Span::raw(" "),
+                Span::styled("🔍 ", Style::default().fg(Color::Yellow)),
                 query_display,
                 Span::styled("█", Style::default().fg(Color::Cyan)),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("  (найдено: {})", app.search_results.len()),
-                    Style::default().fg(Color::DarkGray),
+                    format!("Найдено: {}", app.search_results.len()),
+                    Style::default().fg(Color::White),
                 ),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("(Esc: стереть)", Style::default().fg(Color::DarkGray)),
             ])
         }
     };
@@ -207,7 +243,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                 // Render tasks section
                 if !app.day_tasks.is_empty() {
                     lines.push(Line::from(Span::styled(
-                        " ── Задачи на день ──────────────────────────────────────────────────────────",
+                        "  ── Задачи ─────────────────────────────────────────────────────────────",
                         Style::default().fg(Color::DarkGray),
                     )));
 
@@ -215,19 +251,19 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         let is_sel = (app.day_events.len() + j) == selected;
                         let marker = if is_sel {
                             Span::styled(
-                                "▸ ",
+                                " ▸ ",
                                 Style::default()
                                     .fg(Color::Cyan)
                                     .add_modifier(Modifier::BOLD),
                             )
                         } else {
-                            Span::raw("  ")
+                            Span::raw("   ")
                         };
 
                         let checkbox = if task.is_done {
-                            Span::styled("[x] ", Style::default().fg(Color::Green))
+                            Span::styled("✔ [x] ", Style::default().fg(Color::Green))
                         } else {
-                            Span::styled("[ ] ", Style::default().fg(Color::White))
+                            Span::styled("☐ [ ] ", Style::default().fg(Color::DarkGray))
                         };
 
                         let title_style = if task.is_done {
@@ -244,7 +280,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
 
                         let imp_span = match task.importance {
                             Importance::High => Span::styled(
-                                " ! ",
+                                " ▲ ",
                                 Style::default()
                                     .fg(Color::LightRed)
                                     .add_modifier(Modifier::BOLD),
@@ -266,7 +302,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                         }
 
                         let line = if is_sel {
-                            Line::from(spans).style(Style::default().bg(Color::Rgb(20, 30, 45)))
+                            Line::from(spans).style(Style::default().bg(BG_SELECTED))
                         } else {
                             Line::from(spans)
                         };
@@ -286,13 +322,13 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                     let is_sel = i == selected;
                     let marker = if is_sel {
                         Span::styled(
-                            "▸ ",
+                            " ▸ ",
                             Style::default()
                                 .fg(Color::Cyan)
                                 .add_modifier(Modifier::BOLD),
                         )
                     } else {
-                        Span::raw("  ")
+                        Span::raw("   ")
                     };
 
                     let weekday_prefix = match event.date.weekday() {
@@ -331,17 +367,14 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                     let tags_str = event
                         .tags
                         .iter()
-                        .map(|t| format!("#{}", t.name))
+                        .map(|t| format!("#{:<0}", t.name))
                         .collect::<Vec<_>>()
                         .join(" ");
                     let tags_span = Span::styled(tags_str, Style::default().fg(Color::Cyan));
 
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
-                        lines.push(
-                            Line::from(line_spans)
-                                .style(Style::default().bg(Color::Rgb(20, 30, 45))),
-                        );
+                        lines.push(Line::from(line_spans).style(Style::default().bg(BG_SELECTED)));
                     } else {
                         lines.push(Line::from(line_spans));
                     }
@@ -359,13 +392,13 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
                     let is_sel = i == selected;
                     let marker = if is_sel {
                         Span::styled(
-                            "▸ ",
+                            " ▸ ",
                             Style::default()
                                 .fg(Color::Cyan)
                                 .add_modifier(Modifier::BOLD),
                         )
                     } else {
-                        Span::raw("  ")
+                        Span::raw("   ")
                     };
 
                     let date_span = Span::styled(
@@ -401,10 +434,7 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
 
                     let line_spans = vec![marker, date_span, time_span, title_span, tags_span];
                     if is_sel {
-                        lines.push(
-                            Line::from(line_spans)
-                                .style(Style::default().bg(Color::Rgb(20, 30, 45))),
-                        );
+                        lines.push(Line::from(line_spans).style(Style::default().bg(BG_SELECTED)));
                     } else {
                         lines.push(Line::from(line_spans));
                     }
@@ -427,36 +457,29 @@ fn render_content(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
         .take(list_height)
         .collect();
 
-    frame.render_widget(
-        Paragraph::new(visible_lines).block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        ),
-        area,
-    );
+    frame.render_widget(Paragraph::new(visible_lines), area);
 }
 
 fn render_event_line(event: &crate::model::EventOccurrence, is_sel: bool) -> Line<'static> {
     let marker = if is_sel {
         Span::styled(
-            "▸ ",
+            " ▸ ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )
     } else {
-        Span::raw("  ")
+        Span::raw("   ")
     };
 
     let imp_indicator = match event.importance {
         Importance::High => Span::styled(
-            "! ",
+            "▲ ! ",
             Style::default()
                 .fg(Color::LightRed)
                 .add_modifier(Modifier::BOLD),
         ),
-        Importance::Normal => Span::styled("• ", Style::default().fg(Color::Cyan)),
+        Importance::Normal => Span::styled("● ", Style::default().fg(Color::Cyan)),
         Importance::Low => Span::styled("· ", Style::default().fg(Color::Blue)),
         Importance::None => Span::raw("  "),
     };
@@ -487,51 +510,126 @@ fn render_event_line(event: &crate::model::EventOccurrence, is_sel: bool) -> Lin
 
     let line_spans = vec![marker, imp_indicator, time_span, title_span, tags_span];
     if is_sel {
-        Line::from(line_spans).style(Style::default().bg(Color::Rgb(20, 30, 45)))
+        Line::from(line_spans).style(Style::default().bg(BG_SELECTED))
     } else {
         Line::from(line_spans)
     }
 }
 
-fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &InlineApp) {
-    let footer_line = match app.tab {
+fn build_footer(app: &InlineApp) -> Line<'static> {
+    match app.tab {
         InlineTab::Day => Line::from(vec![
-            Span::styled(" [↑/↓] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Выбор  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Enter] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Карточка  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[p] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Сводка дня  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[a] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Добавить  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Tab] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Режим", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                " [↑/↓] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Enter] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[p] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Сводка дня · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[a] ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Добавить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Space] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Статус · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Tab] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Режим ", Style::default().fg(Color::DarkGray)),
         ]),
         InlineTab::Week => Line::from(vec![
-            Span::styled(" [↑/↓] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Выбор  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Enter] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Карточка  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[a] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Добавить  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Tab] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Режим  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[F] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Полный TUI", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                " [↑/↓] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Enter] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[a] ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Добавить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Tab] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Режим · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[F] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Полный TUI ", Style::default().fg(Color::DarkGray)),
         ]),
         InlineTab::Search => Line::from(vec![
-            Span::styled(" [↑/↓] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Выбор  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Enter] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Карточка  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Esc] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Очистить  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Tab] ", Style::default().fg(Color::Cyan)),
-            Span::styled("Режим", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                " [↑/↓] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Выбор · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Enter] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Карточка · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Esc] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Очистить · ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Tab] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Режим ", Style::default().fg(Color::DarkGray)),
         ]),
-    };
-
-    frame.render_widget(Paragraph::new(footer_line), area);
+    }
 }
 
 #[cfg(test)]
@@ -561,6 +659,6 @@ mod tests {
         assert!(rendered_text.contains("1 ДЕНЬ"));
         assert!(rendered_text.contains("2 НЕДЕЛЯ"));
         assert!(rendered_text.contains("3 ПОИСК"));
-        assert!(rendered_text.contains("03.09.2026"));
+        assert!(rendered_text.contains("03.09"));
     }
 }
