@@ -1,7 +1,11 @@
 [package]
 name = "rutendar"
-version = "0.7.0"
+version = "0.7.2"
 edition = "2024"
+
+[[bin]]
+name = "rr"
+path = "src/main.rs"
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock", "serde"] }
