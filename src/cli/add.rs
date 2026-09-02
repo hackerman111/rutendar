@@ -195,6 +195,70 @@ pub fn run_add(database: &mut Database, args: &AddArgs) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+pub fn prompt_create_event(
+    database: &mut Database,
+    default_date: NaiveDate,
+) -> Result<Option<EventOccurrence>, Box<dyn Error>> {
+    let inputs = match prompt_interactive(database, default_date) {
+        Ok(inputs) => inputs,
+        Err(_) => return Ok(None),
+    };
+
+    let title = inputs.title.trim().to_string();
+    if title.is_empty() {
+        return Ok(None);
+    }
+
+    let date = parse_cli_date(&inputs.date, default_date)?;
+    let (start_time, end_time) = parse_cli_time(&inputs.time)?;
+    let importance = parse_cli_importance(&inputs.importance);
+    let directory = parse_cli_directory(&inputs.directory)?;
+    let tags = parse_cli_tags(&inputs.tags);
+    let description = if inputs.description.trim().is_empty() {
+        None
+    } else {
+        Some(inputs.description.trim().to_string())
+    };
+
+    let new_event = NewEvent {
+        title: title.clone(),
+        description: description.clone(),
+        start_date: date,
+        start_time,
+        end_time,
+        importance,
+        directory: directory.clone(),
+    };
+
+    let event_id = database.create_event(&new_event, None, &tags, &[])?;
+
+    let occurrence = EventOccurrence {
+        event_id,
+        recurrence_id: None,
+        original_date: date,
+        date,
+        start_time,
+        end_time,
+        title,
+        description,
+        importance,
+        tags: tags
+            .iter()
+            .map(|t| Tag {
+                id: 0,
+                name: t.clone(),
+                normalized_name: t.clone(),
+            })
+            .collect(),
+        favorite_links: Vec::new(),
+        directory,
+        is_recurring: false,
+    };
+
+    Ok(Some(occurrence))
+}
+
+
 fn prompt_interactive(
     database: &Database,
     today: NaiveDate,
