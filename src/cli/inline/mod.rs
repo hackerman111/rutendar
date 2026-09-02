@@ -1,3 +1,4 @@
+pub mod add_form;
 pub mod render;
 pub mod state;
 
@@ -10,13 +11,13 @@ use crossterm::{
 };
 use ratatui::{Terminal, TerminalOptions, Viewport, backend::CrosstermBackend};
 
+pub use add_form::{AddFormApp, AddFormField, render_add_form, run_add_form_interactive};
 pub use render::render_inline;
 pub use state::{InlineApp, InlineOutcome, InlineTab, SelectedDayItem};
 
 use crate::{
     cli::{
         Period,
-        add::prompt_create_event,
         format::{format_day_summary, format_event_card},
     },
     config::Config,
@@ -182,11 +183,12 @@ pub fn run_inline(
                         terminal.clear()?;
                         disable_raw_mode()?;
 
-                        let _ = prompt_create_event(database, app.current_date);
+                        let _ = run_add_form_interactive(database, app.current_date);
 
                         enable_raw_mode()?;
                         app.reload_all(database)?;
                     }
+
                     _ => {}
                 }
             }
