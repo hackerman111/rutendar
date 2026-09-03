@@ -443,24 +443,30 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
     } else {
         " ───────────────────────────────────────────────────────────────────────────────────"
     };
+    let title = format!("{} Название:    ", app.theme.pin_icon());
+    let date = format!("{} Дата:        ", app.theme.date_icon());
+    let time = format!("{} Время:       ", app.theme.time_icon());
+    let tag = format!("{} Теги:        ", app.theme.tag_icon());
+    let dir = format!("{} Директория:  ", app.theme.dir_icon());
+    let desc = format!("{} Описание:    ", app.theme.note_icon());
 
     let mut lines = vec![
         render_field_line(
-            "📌 Название:    ",
+            title.as_str(),
             &app.title,
             app.active_field == AddFormField::Title,
             "начните вводить название события...",
             app.theme,
         ),
         render_field_line(
-            "📅 Дата:        ",
+            date.as_str(),
             &app.date,
             app.active_field == AddFormField::Date,
             "DD.MM.YYYY, today, tomorrow",
             app.theme,
         ),
         render_field_line(
-            "⏰ Время:       ",
+            time.as_str(),
             &app.time,
             app.active_field == AddFormField::Time,
             "HH:MM или HH:MM-HH:MM (пусто — весь день)",
@@ -472,21 +478,21 @@ pub fn render_add_form(frame: &mut Frame<'_>, area: Rect, app: &AddFormApp) {
             app.theme,
         ),
         render_field_line(
-            "🏷  Теги:        ",
+            tag.as_str(),
             &app.tags,
             app.active_field == AddFormField::Tags,
             "#универ #работа (через пробел)",
             app.theme,
         ),
         render_field_line(
-            "📁 Директория:  ",
+            dir.as_str(),
             &app.directory,
             app.active_field == AddFormField::Directory,
             "~/путь к директории проекта",
             app.theme,
         ),
         render_field_line(
-            "📝 Описание:    ",
+            desc.as_str(),
             &app.description,
             app.active_field == AddFormField::Description,
             "дополнительные заметки и детали...",
@@ -588,10 +594,14 @@ fn render_importance_line(current: Importance, is_active: bool, theme: Theme) ->
     } else {
         Span::raw("")
     };
-
+    let name = if theme == Theme::Default {
+        "⚡ Важность:     "
+    } else {
+        "[I]  Важность:   "
+    };
     let spans = vec![
         pointer,
-        Span::styled("⚡ Важность:     ", label_style),
+        Span::styled(name, label_style),
         none_pill,
         Span::raw(" "),
         low_pill,
@@ -939,16 +949,19 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
         " ───────────────────────────────────────────────────────────────────────────────────"
     };
 
+    let title = format!("{} Название:    ", app.theme.pin_icon());
+    let date = format!("{} Дата:        ", app.theme.date_icon());
+    let desc = format!("{} Описание:    ", app.theme.note_icon());
     let mut lines = vec![
         render_field_line(
-            "📌 Название задачи: ",
+            title.as_str(),
             &app.title,
             app.active_field == TaskFormField::Title,
             "кратко суть задачи...",
             app.theme,
         ),
         render_field_line(
-            "📅 Срок (дата):     ",
+            date.as_str(),
             &app.date,
             app.active_field == TaskFormField::Date,
             "DD.MM.YYYY, today, tomorrow (или пусто)",
@@ -960,7 +973,7 @@ pub fn render_task_form(frame: &mut Frame<'_>, area: Rect, app: &TaskFormApp) {
             app.theme,
         ),
         render_field_line(
-            "📝 Описание:        ",
+            desc.as_str(),
             &app.description,
             app.active_field == TaskFormField::Description,
             "дополнительные заметки к задаче...",

@@ -110,7 +110,10 @@ pub fn run_add(database: &mut Database, args: &AddArgs) -> Result<(), Box<dyn Er
             crate::ui::Theme::default(),
         )? {
             println!("\x1b[1;32m✓ Событие успешно создано!\x1b[0m\n");
-            println!("{}", format_event_card(&occurrence));
+            println!(
+                "{}",
+                format_event_card(&occurrence, crate::ui::Theme::default())
+            );
         }
         return Ok(());
     }
@@ -168,7 +171,10 @@ pub fn run_add(database: &mut Database, args: &AddArgs) -> Result<(), Box<dyn Er
     };
 
     println!("\x1b[1;32m✓ Событие успешно создано!\x1b[0m\n");
-    println!("{}", format_event_card(&occurrence));
+    println!(
+        "{}",
+        format_event_card(&occurrence, crate::ui::Theme::default())
+    );
 
     Ok(())
 }

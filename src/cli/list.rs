@@ -173,7 +173,7 @@ pub fn run_list(database: &Database, initial_period: Option<Period>) -> Result<(
     disable_raw_mode()?;
 
     if let Some(event) = selected_event {
-        println!("{}", format_event_card(&event));
+        println!("{}", format_event_card(&event, crate::ui::Theme::default()));
     }
 
     Ok(())

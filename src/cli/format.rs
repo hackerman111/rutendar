@@ -3,7 +3,10 @@ use std::fmt::Write;
 use chrono::{Datelike, Weekday};
 use unicode_width::UnicodeWidthStr;
 
-use crate::model::{EventOccurrence, Importance, Task};
+use crate::{
+    model::{EventOccurrence, Importance, Task},
+    ui::Theme,
+};
 
 fn strip_ansi(s: &str) -> String {
     let mut clean = String::with_capacity(s.len());
@@ -26,11 +29,16 @@ fn visible_width(s: &str) -> usize {
     strip_ansi(s).width()
 }
 
-fn push_card_line(out: &mut String, content: &str, inner_width: usize) {
+fn push_card_line(out: &mut String, content: &str, inner_width: usize, theme: Theme) {
+    let border = if theme == Theme::Ascii {
+        "|"
+    } else {
+        "\x1b[36m│\x1b[0m"
+    };
     let vis_len = visible_width(content);
     if vis_len <= inner_width {
         let pad = " ".repeat(inner_width - vis_len);
-        let _ = writeln!(out, "\x1b[36m│\x1b[0m {content}{pad} \x1b[36m│\x1b[0m");
+        let _ = writeln!(out, "{border} {content}{pad} {border}");
     } else {
         let clean = strip_ansi(content);
         let mut truncated = String::new();
@@ -44,12 +52,12 @@ fn push_card_line(out: &mut String, content: &str, inner_width: usize) {
             cur_width += cw;
         }
         let pad = " ".repeat(inner_width.saturating_sub(cur_width + 1));
-        let _ = writeln!(out, "\x1b[36m│\x1b[0m {truncated}…{pad} \x1b[36m│\x1b[0m");
+        let _ = writeln!(out, "{border} {truncated}…{pad} {border}");
     }
 }
 
 /// Format an event occurrence into a beautiful terminal card with a fully closed frame.
-pub fn format_event_card(event: &EventOccurrence) -> String {
+pub fn format_event_card(event: &EventOccurrence, theme: Theme) -> String {
     let mut out = String::new();
 
     let (badge_text, badge_style) = match event.importance {
@@ -79,18 +87,23 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
         _ => "Весь день".to_string(),
     };
 
-    let recurrence_str = if event.is_recurring {
-        " \x1b[35m↻ (повторяющееся)\x1b[0m"
-    } else {
-        ""
+    let recurrence_str = match (event.is_recurring, theme) {
+        (true, Theme::Default) => " \x1b[35m↻ (повторяющееся)\x1b[0m",
+        (true, Theme::Ascii) => " (R) (повторяющееся)",
+        (false, _) => "",
     };
     let min_card_width = 72usize;
+    let link_icon = if theme == Theme::Ascii {
+        "[L] "
+    } else {
+        "🔗 "
+    };
 
     let longest_link_width = event
         .favorite_links
         .iter()
         .map(|link| {
-            let line = format!("  🔗 {} › {}", link.label, link.url);
+            let line = format!("  {link_icon}{} › {}", link.label, link.url);
             line.width()
         })
         .max()
@@ -99,31 +112,46 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
     let card_width = min_card_width.max(longest_link_width + 4);
     let inner_width = card_width - 4;
 
-    let divider = format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2));
+    let divider = if theme == Theme::Ascii {
+        format!("+{}+", "-".repeat(card_width - 2))
+    } else {
+        format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2))
+    };
 
-    // Top border: ╭── <badge> ──────...──╮
-    let prefix_width = 4; // "╭── "
+    // Top border with an embedded badge.
+    let prefix_width = 4;
     let suffix_margin = 1; // " " after badge
-    let corner_width = 1; // "╮"
+    let corner_width = 1;
     let used_width = prefix_width + badge_vis_width + suffix_margin + corner_width;
     let remaining_dashes = card_width.saturating_sub(used_width);
 
-    let _ = writeln!(
-        out,
-        "\x1b[36m╭──\x1b[0m {badge_formatted} \x1b[36m{}╮\x1b[0m",
-        "─".repeat(remaining_dashes)
-    );
+    if theme == Theme::Ascii {
+        let _ = writeln!(
+            out,
+            "+-- {badge_formatted} {}+",
+            "-".repeat(remaining_dashes)
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "\x1b[36m╭──\x1b[0m {badge_formatted} \x1b[36m{}╮\x1b[0m",
+            "─".repeat(remaining_dashes)
+        );
+    }
 
     // Date & Time line
+
+    let separator = if theme == Theme::Ascii { "|" } else { "·" };
     let date_line = format!(
-        "\x1b[1m📅 {weekday_str}, {}\x1b[0m \x1b[33m· {time_str}\x1b[0m{recurrence_str}",
+        "\x1b[1m{}{weekday_str}, {}\x1b[0m \x1b[33m{separator} {time_str}\x1b[0m{recurrence_str}",
+        theme.date_icon(),
         event.date.format("%d.%m.%Y")
     );
-    push_card_line(&mut out, &date_line, inner_width);
+    push_card_line(&mut out, &date_line, inner_width, theme);
 
     // Title line
-    let title_line = format!("\x1b[1;32m📌 {}\x1b[0m", event.title);
-    push_card_line(&mut out, &title_line, inner_width);
+    let title_line = format!("\x1b[1;32m{}{}\x1b[0m", theme.pin_icon(), event.title);
+    push_card_line(&mut out, &title_line, inner_width, theme);
 
     // Tags
     if !event.tags.is_empty() {
@@ -133,14 +161,14 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
             .map(|t| format!("\x1b[36m#{}\x1b[0m", t.name))
             .collect::<Vec<_>>()
             .join("  ");
-        let tags_line = format!("🏷  {tags_formatted}");
-        push_card_line(&mut out, &tags_line, inner_width);
+        let tags_line = format!("{} {tags_formatted}", theme.tag_icon());
+        push_card_line(&mut out, &tags_line, inner_width, theme);
     }
 
     // Directory
     if let Some(dir) = &event.directory {
-        let dir_line = format!("📁 \x1b[34m{}\x1b[0m", dir.display());
-        push_card_line(&mut out, &dir_line, inner_width);
+        let dir_line = format!("{}\x1b[34m{}\x1b[0m", theme.dir_icon(), dir.display());
+        push_card_line(&mut out, &dir_line, inner_width, theme);
     }
 
     // Description
@@ -148,36 +176,46 @@ pub fn format_event_card(event: &EventOccurrence) -> String {
         && !desc.trim().is_empty()
     {
         let _ = writeln!(out, "{divider}");
-        push_card_line(&mut out, "\x1b[1mОписание:\x1b[0m", inner_width);
+        push_card_line(&mut out, "\x1b[1mОписание:\x1b[0m", inner_width, theme);
         for line in desc.lines() {
             let desc_line = format!("  {line}");
-            push_card_line(&mut out, &desc_line, inner_width);
+            push_card_line(&mut out, &desc_line, inner_width, theme);
         }
     }
 
     // Links
     if !event.favorite_links.is_empty() {
         let _ = writeln!(out, "{divider}");
-        push_card_line(&mut out, "\x1b[1mСсылки:\x1b[0m", inner_width);
+        push_card_line(&mut out, "\x1b[1mСсылки:\x1b[0m", inner_width, theme);
         for link in &event.favorite_links {
+            let arrow = if theme == Theme::Ascii { ">" } else { "›" };
             let link_line = format!(
-                "  🔗 \x1b[1m{}\x1b[0m \x1b[90m›\x1b[0m \x1b[4;36m{}\x1b[0m",
+                "  {link_icon}\x1b[1m{}\x1b[0m \x1b[90m{arrow}\x1b[0m \x1b[4;36m{}\x1b[0m",
                 link.label, link.url
             );
-            push_card_line(&mut out, &link_line, inner_width);
+            push_card_line(&mut out, &link_line, inner_width, theme);
             if let Some(desc) = &link.description
                 && !desc.trim().is_empty()
             {
-                let sub_line = format!("     \x1b[90m↳ {desc}\x1b[0m");
-                push_card_line(&mut out, &sub_line, inner_width);
+                let sub_arrow = if theme == Theme::Ascii { "->" } else { "↳" };
+                let sub_line = format!("     \x1b[90m{sub_arrow} {desc}\x1b[0m");
+                push_card_line(&mut out, &sub_line, inner_width, theme);
             }
         }
     }
 
     // Bottom border
-    let bottom = format!("\x1b[36m╰{}╯\x1b[0m", "─".repeat(card_width - 2));
+    let bottom = if theme == Theme::Ascii {
+        format!("+{}+", "-".repeat(card_width - 2))
+    } else {
+        format!("\x1b[36m╰{}╯\x1b[0m", "─".repeat(card_width - 2))
+    };
     let _ = write!(out, "{bottom}");
-    out
+    if theme == Theme::Ascii {
+        strip_ansi(&out)
+    } else {
+        out
+    }
 }
 
 /// Format a full day summary into a beautiful closed terminal box with events and tasks.
@@ -185,6 +223,7 @@ pub fn format_day_summary(
     date: chrono::NaiveDate,
     events: &[EventOccurrence],
     tasks: &[Task],
+    theme: Theme,
 ) -> String {
     let mut out = String::new();
 
@@ -198,43 +237,70 @@ pub fn format_day_summary(
         Weekday::Sun => "Воскресенье",
     };
 
-    let title_badge = format!("📅 {}, {}", weekday_str, date.format("%d.%m.%Y"));
+    let title_badge = format!(
+        "{}{}, {}",
+        theme.date_icon(),
+        weekday_str,
+        date.format("%d.%m.%Y")
+    );
     let badge_vis_width = visible_width(&title_badge);
 
     let card_width = 72usize;
     let inner_width = card_width - 4;
 
-    let divider = format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2));
+    let divider = if theme == Theme::Ascii {
+        format!("+{}+", "-".repeat(card_width - 2))
+    } else {
+        format!("\x1b[36m├{}┤\x1b[0m", "─".repeat(card_width - 2))
+    };
 
-    // Top border: ╭── 📅 <badge> ───────...──╮
-    let prefix_width = 4; // "╭── "
+    // Top border with an embedded date badge.
+    let prefix_width = 4;
     let suffix_margin = 1; // " " after badge
-    let corner_width = 1; // "╮"
+    let corner_width = 1;
     let used_width = prefix_width + badge_vis_width + suffix_margin + corner_width;
     let remaining_dashes = card_width.saturating_sub(used_width);
 
-    let _ = writeln!(
-        out,
-        "\x1b[36m╭──\x1b[0m \x1b[1m{title_badge}\x1b[0m \x1b[36m{}╮\x1b[0m",
-        "─".repeat(remaining_dashes)
-    );
+    if theme == Theme::Ascii {
+        let _ = writeln!(
+            out,
+            "+-- \x1b[1m{title_badge}\x1b[0m {}+",
+            "-".repeat(remaining_dashes)
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "\x1b[36m╭──\x1b[0m \x1b[1m{title_badge}\x1b[0m \x1b[36m{}╮\x1b[0m",
+            "─".repeat(remaining_dashes)
+        );
+    }
 
     // Header for schedule
     push_card_line(
         &mut out,
         "\x1b[1;36mРАСПИСАНИЕ И СОБЫТИЯ\x1b[0m",
         inner_width,
+        theme,
     );
 
     if events.is_empty() {
-        push_card_line(&mut out, "  \x1b[90m(нет событий)\x1b[0m", inner_width);
+        push_card_line(
+            &mut out,
+            "  \x1b[90m(нет событий)\x1b[0m",
+            inner_width,
+            theme,
+        );
     } else {
         for event in events {
-            let imp_indicator = match event.importance {
-                Importance::High => "\x1b[1;31m!\x1b[0m ",
-                Importance::Normal => "\x1b[36m•\x1b[0m ",
-                Importance::Low => "\x1b[34m·\x1b[0m ",
-                Importance::None => "  ",
+            let imp_indicator = match (theme, event.importance) {
+                (Theme::Ascii, Importance::High) => "[!] ",
+                (Theme::Ascii, Importance::Normal) => "[.] ",
+                (Theme::Ascii, Importance::Low) => "[-] ",
+                (Theme::Ascii, Importance::None) => "    ",
+                (Theme::Default, Importance::High) => "\x1b[1;31m!\x1b[0m ",
+                (Theme::Default, Importance::Normal) => "\x1b[36m•\x1b[0m ",
+                (Theme::Default, Importance::Low) => "\x1b[34m·\x1b[0m ",
+                (Theme::Default, Importance::None) => "  ",
             };
 
             let time_str = match (event.start_time, event.end_time) {
@@ -267,34 +333,52 @@ pub fn format_day_summary(
                 "  {imp_indicator}{time_str}  \x1b[1m{}\x1b[0m{tags_str}",
                 event.title
             );
-            push_card_line(&mut out, &event_line, inner_width);
+            push_card_line(&mut out, &event_line, inner_width, theme);
         }
     }
 
     if !tasks.is_empty() {
         let _ = writeln!(out, "{divider}");
-        push_card_line(&mut out, "\x1b[1;36mЗАДАЧИ НА ДЕНЬ\x1b[0m", inner_width);
+        push_card_line(
+            &mut out,
+            "\x1b[1;36mЗАДАЧИ НА ДЕНЬ\x1b[0m",
+            inner_width,
+            theme,
+        );
         for task in tasks {
-            let status_mark = if task.is_done {
-                "\x1b[32m[x]\x1b[0m"
-            } else {
-                "\x1b[90m[ ]\x1b[0m"
+            let status_mark = match (theme, task.is_done) {
+                (Theme::Ascii, true) => "[X]",
+                (Theme::Ascii, false) => "[ ]",
+                (Theme::Default, true) => "\x1b[32m[x]\x1b[0m",
+                (Theme::Default, false) => "\x1b[90m[ ]\x1b[0m",
             };
 
-            let imp_str = match task.importance {
-                Importance::High => " \x1b[1;31m!\x1b[0m",
-                _ => "",
+            let imp_str = match (theme, task.importance) {
+                (Theme::Ascii, Importance::High) => " [!]",
+                (Theme::Ascii, Importance::Normal) => " [.]",
+                (Theme::Ascii, Importance::Low) => " [-]",
+                (Theme::Ascii, Importance::None) => "",
+                (Theme::Default, Importance::High) => " \x1b[1;31m!\x1b[0m",
+                (Theme::Default, _) => "",
             };
 
             let task_line = format!("  {status_mark} {}{imp_str}", task.title);
-            push_card_line(&mut out, &task_line, inner_width);
+            push_card_line(&mut out, &task_line, inner_width, theme);
         }
     }
 
     // Bottom border
-    let bottom = format!("\x1b[36m╰{}╯\x1b[0m", "─".repeat(card_width - 2));
+    let bottom = if theme == Theme::Ascii {
+        format!("+{}+", "-".repeat(card_width - 2))
+    } else {
+        format!("\x1b[36m╰{}╯\x1b[0m", "─".repeat(card_width - 2))
+    };
     let _ = write!(out, "{bottom}");
-    out
+    if theme == Theme::Ascii {
+        strip_ansi(&out)
+    } else {
+        out
+    }
 }
 
 #[cfg(test)]
@@ -331,10 +415,10 @@ mod tests {
                 tags: String::new(),
             }],
             directory: Some(PathBuf::from("/home/user/study")),
-            is_recurring: false,
+            is_recurring: true,
         };
 
-        let card = format_event_card(&event);
+        let card = format_event_card(&event, Theme::Default);
         assert!(card.contains("ВЫСОКАЯ ВАЖНОСТЬ"));
         assert!(!card.contains("[ ВЫСОКАЯ ВАЖНОСТЬ ]")); // Full background fill, no brackets
         assert!(card.contains("Коллоквиум"));
@@ -358,6 +442,19 @@ mod tests {
                 72,
                 "line visual width should be 72: '{clean}'"
             );
+        }
+
+        let ascii_card = format_event_card(&event, Theme::Ascii);
+        for symbol in ["[D]", "[P]", "[#]", "[L]", "(R)"] {
+            assert!(ascii_card.contains(symbol), "missing ASCII symbol {symbol}");
+        }
+        for icon in ["📅", "📌", "🏷", "📁", "🔗", "↻"] {
+            assert!(!ascii_card.contains(icon), "unexpected icon {icon}");
+        }
+        assert!(ascii_card.starts_with("+--"));
+        assert!(!ascii_card.contains('\x1b'));
+        for line in ascii_card.lines() {
+            assert_eq!(line.width(), 72, "line visual width should be 72: '{line}'");
         }
     }
 
@@ -397,7 +494,12 @@ mod tests {
             updated_at: String::new(),
         };
 
-        let summary = format_day_summary(date, &[event], &[task]);
+        let summary = format_day_summary(
+            date,
+            std::slice::from_ref(&event),
+            std::slice::from_ref(&task),
+            Theme::Default,
+        );
         assert!(summary.contains("03.09.2026"));
         assert!(summary.contains("Лекция по физике"));
         assert!(summary.contains("10:00 — 11:30"));
@@ -416,6 +518,22 @@ mod tests {
                 72,
                 "line visual width should be 72: '{clean}'"
             );
+        }
+
+        let ascii_summary = format_day_summary(
+            date,
+            std::slice::from_ref(&event),
+            std::slice::from_ref(&task),
+            Theme::Ascii,
+        );
+        assert!(ascii_summary.contains("[D]"));
+        assert!(ascii_summary.contains("[!]"));
+        assert!(ascii_summary.contains("[ ] Сдать отчет [.]"));
+        assert!(ascii_summary.starts_with("+--"));
+        assert!(!ascii_summary.contains("📅"));
+        assert!(!ascii_summary.contains('\x1b'));
+        for line in ascii_summary.lines() {
+            assert_eq!(line.width(), 72, "line visual width should be 72: '{line}'");
         }
     }
 }

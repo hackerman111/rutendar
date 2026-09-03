@@ -261,9 +261,9 @@ pub fn run_inline(
     disable_raw_mode()?;
 
     if let Some(event) = card_to_print {
-        println!("{}", format_event_card(&event));
+        println!("{}", format_event_card(&event, app.theme));
     } else if let Some((date, events, tasks)) = summary_to_print {
-        println!("{}", format_day_summary(date, &events, &tasks));
+        println!("{}", format_day_summary(date, &events, &tasks, app.theme));
     }
 
     Ok(outcome)

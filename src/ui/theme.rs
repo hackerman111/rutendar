@@ -76,6 +76,45 @@ impl Theme {
         }
     }
 
+    pub fn pin_icon(self) -> &'static str {
+        match self {
+            Self::Default => "📌 ",
+            Self::Ascii => "[P] ",
+        }
+    }
+    pub fn time_icon(self) -> &'static str {
+        match self {
+            Self::Default => "⏰ ",
+            Self::Ascii => "[T] ",
+        }
+    }
+    pub fn important_icon(self) -> &'static str {
+        match self {
+            Self::Default => "⚡ ",
+            Self::Ascii => "[P] ",
+        }
+    }
+    pub fn tag_icon(self) -> &'static str {
+        match self {
+            Self::Default => "🏷 ",
+            Self::Ascii => "[#] ",
+        }
+    }
+
+    pub fn dir_icon(self) -> &'static str {
+        match self {
+            Self::Default => "📁 ",
+            Self::Ascii => "[D] ",
+        }
+    }
+
+    pub fn note_icon(self) -> &'static str {
+        match self {
+            Self::Default => "📝 ",
+            Self::Ascii => "[N] ",
+        }
+    }
+
     pub fn date_icon(self) -> &'static str {
         match self {
             Self::Default => "📅 ",
